@@ -1,0 +1,66 @@
+# ========================
+# 1. 编译产物与中间缓存
+# ========================
+build/
+**/build/
+bin/
+gen/
+out/
+.gradle/
+buildOutputCleanup/
+
+# 最终生成的安装包与二进制文件
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.aar
+
+# ========================
+# 2. 本地机器配置与私钥（绝不可提交）
+# ========================
+local.properties
+*.keystore
+*.jks
+*.key
+signing.properties
+
+# ========================
+# 3. 日志与崩溃转储
+# ========================
+*.log
+hs_err_pid*
+replay_pid*
+
+# ========================
+# 4. IDE / 编辑器缓存
+# ========================
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+
+# VS Code / Zed / 文本编辑器
+.vscode/
+.zed/
+*.swp
+*~
+*.bak
+
+# ========================
+# 5. 操作系统隐藏文件
+# ========================
+.DS_Store
+Thumbs.db
+
+# ========================
+# 6. 特别保留白名单（必须被 Git 追踪）
+# ========================
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+!gradlew
+!gradlew.bat
