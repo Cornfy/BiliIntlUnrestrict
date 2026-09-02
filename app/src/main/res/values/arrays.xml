@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string-array name="xposed_scope">
-        <!-- 指定作用域为 B 站国际版 -->
-        <item>com.bilibili.app.in</item>
-    </string-array>
-</resources>
