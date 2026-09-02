@@ -28,11 +28,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import me.bili.unrestrict.data.db.CommentFraudRecord
 import me.bili.unrestrict.data.model.CommentFraudStatus
 import me.bili.unrestrict.data.repository.CommentFraudRepository
 import me.bili.unrestrict.ui.theme.*
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -45,14 +45,14 @@ fun CommentFraudHistoryScreen() {
 
     var selectedFilter by remember { mutableStateOf<CommentFraudStatus?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
+    var recordToDeleteOnBili by remember { mutableStateOf<CommentFraudRecord?>(null) }
     var recheckingRpid by remember { mutableStateOf<Long?>(null) }
+    var deletingRpid by remember { mutableStateOf<Long?>(null) } // 👈 删评中状态
 
-    // 过滤列表
     val filteredRecords = remember(allRecords, selectedFilter) {
         if (selectedFilter == null) allRecords else allRecords.filter { it.fraudStatus == selectedFilter }
     }
 
-    // SAF 导入选择器
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             scope.launch {
@@ -73,7 +73,6 @@ fun CommentFraudHistoryScreen() {
         }
     }
 
-    // SAF 导出选择器
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -118,7 +117,6 @@ fun CommentFraudHistoryScreen() {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // --- 状态分类过滤 Chips ---
             if (allRecords.isNotEmpty()) {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
@@ -191,6 +189,7 @@ fun CommentFraudHistoryScreen() {
                         CommentFraudItemCard(
                             record = record,
                             isRechecking = recheckingRpid == record.rpid,
+                            isDeleting = deletingRpid == record.rpid, // 👈 补上传入参数
                             onRecheck = {
                                 scope.launch {
                                     recheckingRpid = record.rpid
@@ -217,6 +216,9 @@ fun CommentFraudHistoryScreen() {
                             },
                             onDeleteLocal = {
                                 scope.launch { CommentFraudRepository.deleteLocalRecord(context, record.rpid) }
+                            },
+                            onDeleteBili = {
+                                recordToDeleteOnBili = record
                             }
                         )
                     }
@@ -244,19 +246,51 @@ fun CommentFraudHistoryScreen() {
             }
         )
     }
+
+    recordToDeleteOnBili?.let { record ->
+        AlertDialog(
+            onDismissRequest = { recordToDeleteOnBili = null },
+            title = { Text("在 B 站永久删除此评论？", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error) },
+            text = { Text("这将会调用 B 站官方接口彻底抹除这条评论，并同时清理本地记录。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val target = record
+                        recordToDeleteOnBili = null
+                        scope.launch {
+                            deletingRpid = target.rpid
+                            val res = CommentFraudRepository.deleteBiliComment(context, target)
+                            deletingRpid = null
+                            res.onSuccess {
+                                Toast.makeText(context, "✅ 删评成功！", Toast.LENGTH_SHORT).show()
+                            }.onFailure {
+                                Toast.makeText(context, "❌ 删评失败: ${it.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("彻底删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { recordToDeleteOnBili = null }) { Text("取消") }
+            }
+        )
+    }
 }
 
 /**
- * 手风琴折叠全息卡片 (1:1 对齐你的设计)
+ * 手风琴折叠全息卡片
  */
 @Composable
 private fun CommentFraudItemCard(
     record: CommentFraudRecord,
     isRechecking: Boolean,
+    isDeleting: Boolean,
     onRecheck: () -> Unit,
     onCopyMessage: () -> Unit,
     onCopyScheme: () -> Unit,
-    onDeleteLocal: () -> Unit
+    onDeleteLocal: () -> Unit,
+    onDeleteBili: () -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(false) }
 
@@ -349,7 +383,7 @@ private fun CommentFraudItemCard(
                     DetailRow(label = "当前状态", value = statusLabel, valueColor = statusColor) {
                         TextButton(
                             onClick = onRecheck,
-                            enabled = !isRechecking,
+                            enabled = !isRechecking && !isDeleting,
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                         ) {
                             Text(if (isRechecking) "更新中…" else "【更新状态】", fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -392,17 +426,32 @@ private fun CommentFraudItemCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(
                         onClick = onRecheck,
-                        enabled = !isRechecking
+                        enabled = !isRechecking && !isDeleting,
+                        colors = ButtonDefaults.textButtonColors(contentColor = iOSBlue)
                     ) {
                         Text(if (isRechecking) "复检中…" else "🔄 复检", fontSize = 12.sp)
                     }
 
-                    TextButton(onClick = onCopyScheme) {
+                    TextButton(
+                        onClick = onCopyScheme,
+                        enabled = !isDeleting
+                    ) {
                         Text("📱 Scheme", fontSize = 12.sp)
                     }
 
-                    TextButton(onClick = onDeleteLocal) {
+                    TextButton(
+                        onClick = onDeleteLocal,
+                        enabled = !isDeleting
+                    ) {
                         Text("❌ 移除", fontSize = 12.sp)
+                    }
+
+                    TextButton(
+                        onClick = onDeleteBili,
+                        enabled = !isDeleting && !isRechecking,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text(if (isDeleting) "删除中…" else "🗑️ 删评", fontSize = 12.sp)
                     }
                 }
 

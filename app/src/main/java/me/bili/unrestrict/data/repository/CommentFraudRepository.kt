@@ -77,42 +77,65 @@ object CommentFraudRepository {
     }
 
     /**
-     * 路人视角单条复检（完全对齐 biliSendCheck 标准 RawCurl 伪装与真值裁决）
+     * 调用 B 站官方接口物理抹除评论
      */
-    suspend fun recheckRecord(context: Context, record: CommentFraudRecord): Result<CommentFraudStatus> = withContext(Dispatchers.IO) {
+    suspend fun deleteBiliComment(context: Context, record: CommentFraudRecord): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val url = if (record.root > 0L) {
-                // 楼中楼
-                "https://api.bilibili.com/x/v2/reply/reply?oid=${record.oid}&type=${record.type}&root=${record.root}&ps=20&pn=1"
-            } else {
-                // 根评论
-                "https://api.bilibili.com/x/v2/reply/main?oid=${record.oid}&type=${record.type}&mode=2&next=0&seek_rpid=${record.rpid}&ps=20"
+            val sp = context.getSharedPreferences("module_config", Context.MODE_PRIVATE)
+            val cookie = sp.getString("bili_cookie", "").orEmpty()
+            val csrf = Regex("""bili_jct=([^;]+)""").find(cookie)?.groupValues?.get(1).orEmpty()
+
+            if (csrf.isBlank()) {
+                return@withContext Result.failure(Exception("未获取到 B 站登录凭证(bili_jct)，请先在 B 站发一条评论同步凭证"))
             }
 
-            // 构造 100% 对齐 Web 浏览器端标准的抓包报文
+            val formBody = okhttp3.FormBody.Builder()
+                .add("oid", record.oid.toString())
+                .add("type", record.type.toString())
+                .add("rpid", record.rpid.toString())
+                .add("csrf", csrf)
+                .build()
+
             val request = Request.Builder()
-                .url(url)
+                .url("https://api.bilibili.com/x/v2/reply/del")
+                .post(formBody)
+                .header("Cookie", cookie)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
                 .header("Origin", "https://www.bilibili.com")
                 .header("Referer", "https://www.bilibili.com")
-                .header("Accept", "application/json, text/plain, */*")
                 .build()
 
             val response = okHttpClient.newCall(request).execute()
-            val body = response.body?.string().orEmpty()
+            val bodyStr = response.body?.string().orEmpty()
+            val json = org.json.JSONObject(bodyStr)
+            val code = json.optInt("code", -1)
 
-            val rpidPattern = """"rpid":\s*${record.rpid}""".toRegex()
-
-            val newStatus = when {
-                // 1. 成功在路人视角找到 RPID -> 正常
-                rpidPattern.containsMatchIn(body) -> CommentFraudStatus.NORMAL
-                // 2. 接口明确提示 12022 -> 已失效
-                body.contains("\"code\":12022") || body.contains("\"code\": 12022") -> CommentFraudStatus.DELETED
-                // 3. 只有当接口正常返回 0 且里面确实没有该评论，才是真 ShadowBan
-                body.contains("\"code\":0") || body.contains("\"code\": 0") -> CommentFraudStatus.SHADOW_BANNED
-                // 4. 其余情况 (WAF、-352 等)，归为 UNKNOWN 绝不误判
-                else -> CommentFraudStatus.UNKNOWN
+            if (code == 0) {
+                // 官方删评成功，同步清理本地记录
+                getDao(context).deleteByRpid(record.rpid)
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception(json.optString("message", "删评失败: code=$code")))
             }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 历史面板单条复检：双重视角真值裁决
+     */
+    suspend fun recheckRecord(context: Context, record: CommentFraudRecord): Result<CommentFraudStatus> = withContext(Dispatchers.IO) {
+        try {
+            val sentAt = if (record.post_time > 0L) record.post_time / 1000L else 0L
+            val newStatus = me.bili.unrestrict.detector.CommentProbeEngine.evaluateCommentStatus(
+                context = context,
+                oid = record.oid,
+                type = record.type,
+                rpid = record.rpid,
+                root = record.root,
+                sentAtSeconds = sentAt
+            )
 
             val updated = record.copy(
                 status = newStatus.name,

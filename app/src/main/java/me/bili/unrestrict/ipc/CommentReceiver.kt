@@ -31,6 +31,11 @@ class CommentReceiver : BroadcastReceiver() {
             val message = intent.getStringExtra("message").orEmpty()
             val status = intent.getStringExtra("status") ?: "UNKNOWN"
             val postTime = intent.getLongExtra("post_time", 0L)
+            val cookie = intent.getStringExtra("bili_cookie")
+            if (!cookie.isNullOrBlank()) {
+                val sp = context.getSharedPreferences("module_config", Context.MODE_PRIVATE)
+                sp.edit().putString("bili_cookie", cookie).apply()
+            }
 
             // 告诉系统保持活跃，直到私有数据库写入完毕
             val pendingResult = goAsync()
