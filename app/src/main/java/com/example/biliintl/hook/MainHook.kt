@@ -4,24 +4,27 @@ import android.app.Application
 import android.content.Context
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XC_MethodReplacement
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
+import java.net.URL
 
 class MainHook : IXposedHookLoadPackage {
 
     companion object {
         private const val TARGET_PACKAGE = "com.bilibili.app.in"
-        private const val TAG = "BiliIntlHook"
+        private const val TAG = "BiliTracer"
+
+        fun log(msg: String) {
+            XposedBridge.log("[$TAG] $msg")
+        }
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName != TARGET_PACKAGE) return
 
-        XposedBridge.log("[$TAG] 🚀 成功拦截到 B站国际版主进程: ${lpparam.processName}")
+        log("🚀 注入目标进程: ${lpparam.processName}")
 
-        // 核心：等待 Application 启动并加载完所有 Split Dex 后再执行 Hook
         XposedHelpers.findAndHookMethod(
             Application::class.java,
             "attach",
@@ -29,68 +32,116 @@ class MainHook : IXposedHookLoadPackage {
             object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val classLoader = (param.thisObject as Application).classLoader
-                    XposedBridge.log("[$TAG] 📦 Application attach 成功，开始注入业务 Hook...")
                     
-                    hookAllTeenagerRestrictions(classLoader)
+                    // 1. 挂载全局 OkHttp 抓包探针
+                    installOkHttpTracer(classLoader)
+
+                    // 2. 挂载 gRPC 响应实体探针
+                    installGrpcTracer(classLoader)
+
+                    // 3. 挂载青少年模式关键状态变更探针
+                    installStateTracer(classLoader)
                 }
             }
         )
     }
 
-    private fun hookAllTeenagerRestrictions(classLoader: ClassLoader) {
-        // 1. 拦截服务端下发的 UserModel (gRPC 核心)
+    /**
+     * 1. 抓取所有 HTTP/HTTPS 网络请求（URL、参数、响应码）
+     */
+    private fun installOkHttpTracer(classLoader: ClassLoader) {
+        try {
+            val realCallClass = XposedHelpers.findClassIfExists("okhttp3.RealCall", classLoader)
+            if (realCallClass != null) {
+                // 拦截异步请求 enqueue
+                XposedHelpers.findAndHookMethod(
+                    realCallClass,
+                    "enqueue",
+                    "okhttp3.Callback",
+                    object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            val request = XposedHelpers.callMethod(param.thisObject, "request")
+                            val url = XposedHelpers.callMethod(request, "url").toString()
+
+                            // 过滤出与青少年模式、模式控制、用户状态相关的请求
+                            if (url.contains("teenager", ignoreCase = true) ||
+                                url.contains("mode", ignoreCase = true) ||
+                                url.contains("age", ignoreCase = true) ||
+                                url.contains("user/status", ignoreCase = true)
+                            ) {
+                                val method = XposedHelpers.callMethod(request, "method")
+                                log("📡 [OkHttp 发包] $method -> $url")
+                            }
+                        }
+                    }
+                )
+                log("✅ OkHttp 抓包探针挂载成功")
+            }
+        } catch (t: Throwable) {
+            log("⚠️ OkHttp 探针挂载失败: ${t.message}")
+        }
+    }
+
+    /**
+     * 2. 抓取 gRPC 服务端下发的真实数据
+     */
+    private fun installGrpcTracer(classLoader: ClassLoader) {
         try {
             val userModelClass = XposedHelpers.findClassIfExists(
                 "com.bapis.bilibili.app.interfaces.v1.UserModel",
                 classLoader
             )
             if (userModelClass != null) {
-                XposedHelpers.findAndHookMethod(userModelClass, "getMustTeen", XC_MethodReplacement.returnConstant(false))
-                XposedHelpers.findAndHookMethod(userModelClass, "getIsForced", XC_MethodReplacement.returnConstant(false))
-                XposedHelpers.findAndHookMethod(userModelClass, "getAge", XC_MethodReplacement.returnConstant(22))
-                XposedHelpers.findAndHookMethod(userModelClass, "getIsOverseas", XC_MethodReplacement.returnConstant(false))
-                XposedBridge.log("[$TAG] ✅ UserModel gRPC 拦截成功")
-            }
-        } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] ❌ UserModel Hook 失败: ${t.message}")
-        }
-
-        // 2. 拦截本地状态枚举判定 (AgeCheck)
-        try {
-            XposedHelpers.findAndHookMethod(
-                "com.bilibili.teenagersmode.model.TeenagersModeAgeCheck",
-                classLoader,
-                "toIntEnum",
-                XC_MethodReplacement.returnConstant(4) // 4 = 成年人
-            )
-            XposedBridge.log("[$TAG] ✅ TeenagersModeAgeCheck 拦截成功")
-        } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] ❌ AgeCheck Hook 失败: ${t.message}")
-        }
-
-        // 3. 拦截全局拦截 Activity 的启动
-        try {
-            val forceActivityClass = XposedHelpers.findClassIfExists(
-                "com.bilibili.teenagersmode.ui.TeenagersForceModeGuardianBindActivity",
-                classLoader
-            )
-            if (forceActivityClass != null) {
+                // 观察服务端原始返回的每个字段
                 XposedHelpers.findAndHookMethod(
-                    forceActivityClass,
-                    "onCreate",
-                    android.os.Bundle::class.java,
+                    userModelClass,
+                    "getMustTeen",
                     object : XC_MethodHook() {
-                        override fun beforeHookedMethod(param: MethodHookParam) {
-                            XposedBridge.log("[$TAG] 🛑 阻断强制监护人弹窗 Activity 启动！")
-                            val activity = param.thisObject as android.app.Activity
-                            activity.finish()
-                            param.result = null
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            log("📥 [gRPC 下发] UserModel.getMustTeen() 原始值 = ${param.result}")
+                        }
+                    }
+                )
+
+                XposedHelpers.findAndHookMethod(
+                    userModelClass,
+                    "getAge",
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            log("📥 [gRPC 下发] UserModel.getAge() 原始值 = ${param.result}")
                         }
                     }
                 )
             }
         } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] ❌ ForceActivity Hook 失败: ${t.message}")
+            log("⚠️ gRPC 探针挂载失败: ${t.message}")
         }
+    }
+
+    /**
+     * 3. 抓取本地状态与弹窗触发逻辑
+     */
+    private fun installStateTracer(classLoader: ClassLoader) {
+        try {
+            val statusClass = XposedHelpers.findClassIfExists(
+                "com.bilibili.teenagersmode.model.TeenagersModeStatus",
+                classLoader
+            )
+            if (statusClass != null) {
+                XposedHelpers.findAndHookMethod(
+                    statusClass,
+                    "isValid",
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            val thisObj = param.thisObject
+                            val status = XposedHelpers.getIntField(thisObj, "status")
+                            val mustTeen = XposedHelpers.getBooleanField(thisObj, "mustTeen")
+                            val isOverseas = XposedHelpers.getBooleanField(thisObj, "isOverseas")
+                            log("📊 [本地状态机] TeenagersModeStatus 快照 -> status=$status, mustTeen=$mustTeen, isOverseas=$isOverseas")
+                        }
+                    }
+                )
+            }
+        } catch (t: Throwable) {}
     }
 }
