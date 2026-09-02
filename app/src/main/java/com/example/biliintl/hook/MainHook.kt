@@ -1,5 +1,7 @@
-package com.example.bilipai.hook
+package com.example.biliintl.hook
 
+import android.app.Application
+import android.content.Context
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XC_MethodReplacement
@@ -17,87 +19,78 @@ class MainHook : IXposedHookLoadPackage {
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName != TARGET_PACKAGE) return
 
-        XposedBridge.log("[$TAG] 成功注入 B站国际版: ${lpparam.packageName}")
+        XposedBridge.log("[$TAG] 🚀 成功拦截到 B站国际版主进程: ${lpparam.processName}")
 
-        hookServerModel(lpparam.classLoader)
-        hookLocalAgeCheck(lpparam.classLoader)
-        hookStatusModel(lpparam.classLoader)
+        // 核心：等待 Application 启动并加载完所有 Split Dex 后再执行 Hook
+        XposedHelpers.findAndHookMethod(
+            Application::class.java,
+            "attach",
+            Context::class.java,
+            object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val classLoader = (param.thisObject as Application).classLoader
+                    XposedBridge.log("[$TAG] 📦 Application attach 成功，开始注入业务 Hook...")
+                    
+                    hookAllTeenagerRestrictions(classLoader)
+                }
+            }
+        )
     }
 
-    /**
-     * 1. 核心源头：拦截 gRPC 服务端下发的 UserModel 实体
-     */
-    private fun hookServerModel(classLoader: ClassLoader) {
+    private fun hookAllTeenagerRestrictions(classLoader: ClassLoader) {
+        // 1. 拦截服务端下发的 UserModel (gRPC 核心)
         try {
             val userModelClass = XposedHelpers.findClassIfExists(
                 "com.bapis.bilibili.app.interfaces.v1.UserModel",
                 classLoader
-            ) ?: return
-
-            // 强制禁止锁定青少年模式
-            XposedHelpers.findAndHookMethod(
-                userModelClass,
-                "getMustTeen",
-                XC_MethodReplacement.returnConstant(false)
             )
-
-            // 强制关闭强制生效标志
-            XposedHelpers.findAndHookMethod(
-                userModelClass,
-                "getIsForced",
-                XC_MethodReplacement.returnConstant(false)
-            )
-
-            // 强制返回成年人年龄 (如 22 岁)
-            XposedHelpers.findAndHookMethod(
-                userModelClass,
-                "getAge",
-                XC_MethodReplacement.returnConstant(22)
-            )
-
-            XposedBridge.log("[$TAG] ✅ UserModel gRPC 下发拦截已就绪")
+            if (userModelClass != null) {
+                XposedHelpers.findAndHookMethod(userModelClass, "getMustTeen", XC_MethodReplacement.returnConstant(false))
+                XposedHelpers.findAndHookMethod(userModelClass, "getIsForced", XC_MethodReplacement.returnConstant(false))
+                XposedHelpers.findAndHookMethod(userModelClass, "getAge", XC_MethodReplacement.returnConstant(22))
+                XposedHelpers.findAndHookMethod(userModelClass, "getIsOverseas", XC_MethodReplacement.returnConstant(false))
+                XposedBridge.log("[$TAG] ✅ UserModel gRPC 拦截成功")
+            }
         } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] ❌ UserModel Hook 异常: ${t.message}")
+            XposedBridge.log("[$TAG] ❌ UserModel Hook 失败: ${t.message}")
         }
-    }
 
-    /**
-     * 2. 本地决策层：强制将年龄枚举判定为成年人 (档位 4)
-     */
-    private fun hookLocalAgeCheck(classLoader: ClassLoader) {
+        // 2. 拦截本地状态枚举判定 (AgeCheck)
         try {
             XposedHelpers.findAndHookMethod(
                 "com.bilibili.teenagersmode.model.TeenagersModeAgeCheck",
                 classLoader,
                 "toIntEnum",
-                XC_MethodReplacement.returnConstant(4) // 4 = 成年人档位
+                XC_MethodReplacement.returnConstant(4) // 4 = 成年人
             )
-            XposedBridge.log("[$TAG] ✅ TeenagersModeAgeCheck 年龄枚举锁定已就绪")
+            XposedBridge.log("[$TAG] ✅ TeenagersModeAgeCheck 拦截成功")
         } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] ❌ AgeCheck Hook 异常: ${t.message}")
+            XposedBridge.log("[$TAG] ❌ AgeCheck Hook 失败: ${t.message}")
         }
-    }
 
-    /**
-     * 3. 状态快照层：重写本地 TeenagersModeStatus 实例化逻辑
-     */
-    private fun hookStatusModel(classLoader: ClassLoader) {
+        // 3. 拦截全局拦截 Activity 的启动
         try {
-            val statusClass = XposedHelpers.findClassIfExists(
-                "com.bilibili.teenagersmode.model.TeenagersModeStatus",
+            val forceActivityClass = XposedHelpers.findClassIfExists(
+                "com.bilibili.teenagersmode.ui.TeenagersForceModeGuardianBindActivity",
                 classLoader
-            ) ?: return
-
-            // 拦截构造函数或在返回时确保 status 为 0
-            XposedHelpers.findAndHookMethod(
-                statusClass,
-                "isValid",
-                XC_MethodReplacement.returnConstant(true)
             )
-            
-            XposedBridge.log("[$TAG] ✅ TeenagersModeStatus 状态模型 Hook 已就绪")
+            if (forceActivityClass != null) {
+                XposedHelpers.findAndHookMethod(
+                    forceActivityClass,
+                    "onCreate",
+                    android.os.Bundle::class.java,
+                    object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            XposedBridge.log("[$TAG] 🛑 阻断强制监护人弹窗 Activity 启动！")
+                            val activity = param.thisObject as android.app.Activity
+                            activity.finish()
+                            param.result = null
+                        }
+                    }
+                )
+            }
         } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] ❌ StatusModel Hook 异常: ${t.message}")
+            XposedBridge.log("[$TAG] ❌ ForceActivity Hook 失败: ${t.message}")
         }
     }
 }
