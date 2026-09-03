@@ -25,6 +25,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="me.bili.unrestrict.ACTION_INSERT_COMMENT" />
+                <action android:name="me.bili.unrestrict.ACTION_RECORD_LOG" />
                 <action android:name="me.bili.unrestrict.ACTION_REQUEST_SYNC" />
             </intent-filter>
         </receiver>

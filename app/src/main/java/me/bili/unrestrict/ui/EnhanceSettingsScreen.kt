@@ -2,6 +2,7 @@ package me.bili.unrestrict.ui
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,16 +21,16 @@ import me.bili.unrestrict.ui.theme.iOSGreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EnhanceSettingsScreen() {
+fun EnhanceSettingsScreen(onNavigateToLogs: () -> Unit) {
     val context = LocalContext.current
     val sp = remember { context.getSharedPreferences("module_config", Context.MODE_PRIVATE) }
     var bypassTeenager by remember { mutableStateOf(sp.getBoolean("bypass_teenager_mode", true)) }
+    var debugLogEnabled by remember { mutableStateOf(sp.getBoolean("enable_debug_logging", true)) }
 
-    // 发射配置广播给 B 站
     fun notifyBiliConfigChange(key: String, value: Boolean) {
         try {
             val intent = Intent("me.bili.unrestrict.ACTION_UPDATE_CONFIG").apply {
-                setPackage("com.bilibili.app.in") // 显式定向投递给 B 站
+                setPackage("com.bilibili.app.in")
                 putExtra(key, value)
             }
             context.sendBroadcast(intent)
@@ -59,7 +60,6 @@ fun EnhanceSettingsScreen() {
                 )
             }
 
-            // 真正的功能开关！
             item {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -74,10 +74,78 @@ fun EnhanceSettingsScreen() {
                         onCheckedChange = { isChecked ->
                             bypassTeenager = isChecked
                             sp.edit().putBoolean("bypass_teenager_mode", isChecked).apply()
-                            // 即时广播通知 B 站
                             notifyBiliConfigChange("bypass_teenager_mode", isChecked)
                         }
                     )
+                }
+            }
+
+            item {
+                Text(
+                    text = "🛠️ 调试与诊断",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column {
+                        SwitchPreferenceItem(
+                            icon = Icons.Outlined.BugReport,
+                            title = "记录运行日志",
+                            description = "记录模块在 B 站内的拦截、探测与通信报文，便于排查异常",
+                            checked = debugLogEnabled,
+                            onCheckedChange = { isChecked ->
+                                debugLogEnabled = isChecked
+                                sp.edit().putBoolean("enable_debug_logging", isChecked).apply()
+                                notifyBiliConfigChange("enable_debug_logging", isChecked)
+                            }
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        )
+                        // 点击进入日志页面
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onNavigateToLogs() }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Terminal,
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "查看运行日志",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "查看最近捕获到的发评响应与存活探测详情",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Outlined.ChevronRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
 
@@ -137,7 +205,7 @@ fun EnhanceSettingsScreen() {
                             Text("BiliIntlUnrestrict", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
-                        Text("架构: LibXposed 102 (无反射现代拦截链)", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("架构: LibXposed 102", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("引擎: biliSendCheck 双重视角反诈探针", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("作用域: com.bilibili.app.in", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

@@ -26,41 +26,48 @@ class MainActivity : ComponentActivity() {
         setContent {
             AppTheme {
                 var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+                var currentScreen by rememberSaveable { mutableStateOf("main") }
 
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    bottomBar = {
-                        NavigationBar {
-                            NavigationBarItem(
-                                selected = selectedTab == 0,
-                                onClick = { selectedTab = 0 },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (selectedTab == 0) Icons.Filled.ChatBubble else Icons.Outlined.ChatBubbleOutline,
-                                        contentDescription = "发评反诈"
-                                    )
-                                },
-                                label = { Text("发评反诈") }
-                            )
-                            NavigationBarItem(
-                                selected = selectedTab == 1,
-                                onClick = { selectedTab = 1 },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (selectedTab == 1) Icons.Filled.Tune else Icons.Outlined.Tune,
-                                        contentDescription = "功能增强"
-                                    )
-                                },
-                                label = { Text("功能增强") }
-                            )
+                if (currentScreen == "logs") {
+                    // 全屏日志查看页面（带顶部返回键，无底部导航栏）
+                    LogScreen(onBack = { currentScreen = "main" })
+                } else {
+                    // 主双 Tab 导航框架
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        bottomBar = {
+                            NavigationBar {
+                                NavigationBarItem(
+                                    selected = selectedTab == 0,
+                                    onClick = { selectedTab = 0 },
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (selectedTab == 0) Icons.Filled.ChatBubble else Icons.Outlined.ChatBubbleOutline,
+                                            contentDescription = "发评反诈"
+                                        )
+                                    },
+                                    label = { Text("发评反诈") }
+                                )
+                                NavigationBarItem(
+                                    selected = selectedTab == 1,
+                                    onClick = { selectedTab = 1 },
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (selectedTab == 1) Icons.Filled.Tune else Icons.Outlined.Tune,
+                                            contentDescription = "功能增强"
+                                        )
+                                    },
+                                    label = { Text("功能增强") }
+                                )
+                            }
                         }
-                    }
-                ) { innerPadding ->
-                    Surface(modifier = Modifier.padding(innerPadding)) {
-                        if (selectedTab == 0) {
-                            CommentFraudHistoryScreen()
-                        } else {
-                            EnhanceSettingsScreen()
+                    ) { innerPadding ->
+                        Surface(modifier = Modifier.padding(innerPadding)) {
+                            if (selectedTab == 0) {
+                                CommentFraudHistoryScreen()
+                            } else {
+                                EnhanceSettingsScreen(onNavigateToLogs = { currentScreen = "logs" })
+                            }
                         }
                     }
                 }

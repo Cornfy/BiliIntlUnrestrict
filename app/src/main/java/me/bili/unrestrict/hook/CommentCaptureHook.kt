@@ -52,7 +52,7 @@ class CommentCaptureHook(private val module: XposedModule) {
         }
     }
 
-private fun handlePublisherResult(replyObj: Any) {
+    private fun handlePublisherResult(replyObj: Any) {
         try {
             val dField = replyObj.javaClass.getField("d")
             val commentItem = dField.get(replyObj) ?: return
@@ -62,11 +62,10 @@ private fun handlePublisherResult(replyObj: Any) {
             val rpid = itemClass.getField("a").getLong(commentItem)
             val oid = itemClass.getField("b").getLong(commentItem)
             val type = itemClass.getField("c").getLong(commentItem).toInt()
-            // 🎯 修正字段错位：d 是 rootId，e 是 parentId
             val root = itemClass.getField("d").getLong(commentItem)
             val parent = itemClass.getField("e").getLong(commentItem)
 
-            // 🎯 【精准提取用户 UID(mid)】双重保障：优先从实体对象抓 mid，兜底从 Cookie 抓 DedeUserID
+            // 🎯 用户 UID 抓取
             val cookie = try {
                 android.webkit.CookieManager.getInstance().getCookie("https://bilibili.com").orEmpty()
             } catch (_: Exception) { "" }
@@ -75,21 +74,51 @@ private fun handlePublisherResult(replyObj: Any) {
             val uidFromCookie = Regex("""DedeUserID=(\d+)""").find(cookie)?.groupValues?.get(1)?.toLongOrNull()
             val uid = uidFromItem ?: uidFromCookie ?: 0L
 
-            // 🎯 真实发评时间戳自愈
+            // 🎯 时间戳
             val rawSeconds = try {
                 itemClass.getField("g").getLong(commentItem)
             } catch (_: Exception) { 0L }
             val postTime = if (rawSeconds > 0L) rawSeconds * 1000L else System.currentTimeMillis()
 
-            // 🎯 精确提取 RichText 文案
-            val rawMatch = Regex("""RichText\(raw=(.*?)(?:,\s*contents=|\))""").find(itemStr)
-            val message = rawMatch?.groupValues?.get(1)?.ifBlank { null } ?: "已发表评论"
+            // 🎯 【终极根治】支持换行长评提取，且坚决排除 foldInfo 干扰！
+            val message = extractRealMessage(itemStr)
 
             Log.i(TAG, "🎯 [Publisher] 提取发评: rpid=$rpid, oid=$oid, uid=$uid, time=$postTime, msg=$message")
             startLifecycleWorkflow(rpid, oid, type, root, parent, uid, message, postTime)
         } catch (e: Exception) {
             Log.e(TAG, "❌ handlePublisherResult 失败: ${e.message}")
         }
+    }
+
+    /**
+     * 多行安全文案提取器
+     */
+    private fun extractRealMessage(itemStr: String): String {
+        // 1. 优先从 originalContent 精准提取 (开启 DOT_MATCHES_ALL 支持换行)
+        val origMatch = Regex(
+            """originalContent=.*?RichText\(raw=(.*?)(?:,\s*contents=|\))""",
+            setOf(RegexOption.DOT_MATCHES_ALL)
+        ).find(itemStr)
+
+        val msg1 = origMatch?.groupValues?.get(1)?.trim()
+        if (!msg1.isNullOrBlank() && !msg1.contains("已折叠")) {
+            return msg1
+        }
+
+        // 2. 备选方案：遍历所有 RichText 块，排除系统折叠提示
+        val allMatches = Regex(
+            """RichText\(raw=(.*?)(?:,\s*contents=|\))""",
+            setOf(RegexOption.DOT_MATCHES_ALL)
+        ).findAll(itemStr)
+
+        for (m in allMatches) {
+            val candidate = m.groupValues[1].trim()
+            if (candidate.isNotBlank() && !candidate.contains("已折叠")) {
+                return candidate
+            }
+        }
+
+        return "已发表评论"
     }
 
     private fun startLifecycleWorkflow(

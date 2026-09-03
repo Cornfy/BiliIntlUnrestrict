@@ -16,19 +16,29 @@ object ConfigManager {
     @Volatile
     var bypassTeenagerMode: Boolean = true
 
+    @Volatile
+    var enableDebugLogging: Boolean = true
+
     fun init(context: Context) {
         val sp = context.getSharedPreferences("bili_unrestrict_prefs", Context.MODE_PRIVATE)
         bypassTeenagerMode = sp.getBoolean("bypass_teenager_mode", true)
-        Log.i(TAG, "🔧 [ConfigManager] 本地缓存初始值: bypassTeenagerMode=$bypassTeenagerMode")
+        enableDebugLogging = sp.getBoolean("enable_debug_logging", true)
+        Log.i(TAG, "🔧 [ConfigManager] 本地缓存初始值: bypass=$bypassTeenagerMode, log=$enableDebugLogging")
 
-        // 1. 动态注册监听模块发来的配置广播
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
-                if (intent.action == ACTION_UPDATE_CONFIG && intent.hasExtra("bypass_teenager_mode")) {
-                    val newValue = intent.getBooleanExtra("bypass_teenager_mode", true)
-                    bypassTeenagerMode = newValue
-                    sp.edit().putBoolean("bypass_teenager_mode", newValue).commit()
-                    Log.i(TAG, "⚡ [ConfigManager] 配置已同步更新: bypassTeenagerMode=$newValue")
+                if (intent.action == ACTION_UPDATE_CONFIG) {
+                    if (intent.hasExtra("bypass_teenager_mode")) {
+                        val v = intent.getBooleanExtra("bypass_teenager_mode", true)
+                        bypassTeenagerMode = v
+                        sp.edit().putBoolean("bypass_teenager_mode", v).apply()
+                    }
+                    if (intent.hasExtra("enable_debug_logging")) {
+                        val v = intent.getBooleanExtra("enable_debug_logging", true)
+                        enableDebugLogging = v
+                        sp.edit().putBoolean("enable_debug_logging", v).apply()
+                        Log.i(TAG, "⚡ [ConfigManager] 日志开关已更新: enableDebugLogging=$v")
+                    }
                 }
             }
         }
@@ -40,15 +50,11 @@ object ConfigManager {
             context.registerReceiver(receiver, filter)
         }
 
-        // 🎯 核心解决：冷启动时主动向模块索取最新开关状态 (解决 B 站关闭期间改开关漏听的问题)
         try {
             val syncIntent = Intent(ACTION_REQUEST_SYNC).apply {
                 component = ComponentName("me.bili.unrestrict", "me.bili.unrestrict.ipc.CommentReceiver")
             }
             context.sendBroadcast(syncIntent)
-            Log.i(TAG, "📡 [ConfigManager] 已向模块请求最新开关状态握手")
-        } catch (e: Exception) {
-            Log.w(TAG, "请求同步配置失败: ${e.message}")
-        }
+        } catch (_: Exception) {}
     }
 }
