@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">BiliIntl Unrestrict</string>
+    <string name="xposed_description_short">专为哔哩哔哩海外版设计的发评反诈全息中心与青少年模式中和增强模块</string>
+    <string name="xposed_description">专为哔哩哔哩海外版 (com.bilibili.app.in) 设计的全方位功能增强模块。\n\n功能特色：\n1. 【发评反诈全息中心】：独创双重视角（路人与作者）探针，智能识别发评真实状态（正常展示 / 仅自己可见 ShadowBan / 系统秒删 Deleted / 软屏蔽 Invisible / 审核中），自动沉淀发评历史，彻底告别被偷吞评论；\n2. 【青少年模式中和】：智能拦截海外版 COPPA 异常青少年模式限制，免手持身份证上传，一键恢复成人正常体验；\n3. 【运行诊断系统】：具备完整的模块生命周期、发评拦截与存活探针调试日志，支持动态日志开关与剪贴板一键导出。</string>
+
+    <string-array name="xposed_scope">
+        <item>com.bilibili.app.in</item>
+    </string-array>
 </resources>

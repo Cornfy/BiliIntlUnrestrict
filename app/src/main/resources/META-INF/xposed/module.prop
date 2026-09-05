@@ -1,4 +1,8 @@
+name=BiliIntl Unrestrict
+version=1.0.0
+versionCode=1
+author=Cornfy
 minApiVersion=101
 targetApiVersion=102
 staticScope=false
-description=B站国际版发评反诈全息历史中心与功能增强
+description=专为哔哩哔哩海外版设计的发评反诈全息中心与青少年模式中和增强模块

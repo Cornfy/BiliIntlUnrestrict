@@ -32,6 +32,7 @@ fun EnhanceSettingsScreen(onNavigateToLogs: () -> Unit) {
             val intent = Intent("me.bili.unrestrict.ACTION_UPDATE_CONFIG").apply {
                 setPackage("com.bilibili.app.in")
                 putExtra(key, value)
+                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
             }
             context.sendBroadcast(intent)
         } catch (_: Exception) {}

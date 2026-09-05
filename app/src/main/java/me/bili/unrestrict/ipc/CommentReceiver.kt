@@ -33,13 +33,19 @@ class CommentReceiver : BroadcastReceiver() {
                 setPackage("com.bilibili.app.in")
                 putExtra("bypass_teenager_mode", bypass)
                 putExtra("enable_debug_logging", logEnabled)
+                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
             }
             context.sendBroadcast(replyIntent)
             return
         }
 
-        // 2. 接收日记存库 (增加 goAsync 保证写入完毕前不被系统冻结)
+        // 2. 接收日记存库 (检查日志总开关，增加 goAsync 保证写入完毕前不被系统冻结)
         if (intent.action == ACTION_RECORD_LOG) {
+            val logEnabled = sp.getBoolean("enable_debug_logging", true)
+            if (!logEnabled) {
+                return
+            }
+
             val tag = intent.getStringExtra("tag") ?: "BiliHook"
             val level = intent.getStringExtra("level") ?: "INFO"
             val message = intent.getStringExtra("message").orEmpty()

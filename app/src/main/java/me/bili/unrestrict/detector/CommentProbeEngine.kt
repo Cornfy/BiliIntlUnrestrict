@@ -1,9 +1,11 @@
 package me.bili.unrestrict.detector
 
 import android.content.Context
+import android.webkit.CookieManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.bili.unrestrict.data.model.CommentFraudStatus
+import me.bili.unrestrict.util.XLog
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -30,9 +32,30 @@ object CommentProbeEngine {
             }
 
             val response = client.newCall(builder.build()).execute()
-            if (response.isSuccessful) response.body?.string() else null
-        } catch (_: Exception) {
+            if (response.isSuccessful) {
+                response.body?.string()
+            } else {
+                XLog.w("⚠️ [探针网络] HTTP 请求失败 code=${response.code}, url=$url")
+                null
+            }
+        } catch (e: Exception) {
+            XLog.w("⚠️ [探针网络] 请求异常 url=$url: ${e.message}")
             null
+        }
+    }
+
+    private fun resolveCookie(context: Context?, providedCookie: String): String {
+        if (providedCookie.isNotBlank()) return providedCookie
+        val fromWeb = try {
+            CookieManager.getInstance().getCookie("https://bilibili.com").orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
+        if (fromWeb.isNotBlank()) return fromWeb
+        return try {
+            context?.getSharedPreferences("module_config", Context.MODE_PRIVATE)?.getString("bili_cookie", "").orEmpty()
+        } catch (_: Exception) {
+            ""
         }
     }
 
@@ -40,17 +63,19 @@ object CommentProbeEngine {
      * 统一入口：根据 root 是否为 0 分发给根评论或楼中楼算法
      */
     suspend fun evaluateCommentStatus(
-        context: Context,
+        context: Context? = null,
         oid: Long,
         type: Int,
         rpid: Long,
         root: Long = 0L,
-        sentAtSeconds: Long = 0L
+        sentAtSeconds: Long = 0L,
+        cookie: String = ""
     ): CommentFraudStatus = withContext(Dispatchers.IO) {
+        val effectiveCookie = resolveCookie(context, cookie)
         if (root == 0L) {
-            evaluateRootComment(context, oid, type, rpid)
+            evaluateRootComment(oid, type, rpid, effectiveCookie)
         } else {
-            evaluateSubReply(context, oid, type, rpid, root, sentAtSeconds)
+            evaluateSubReply(oid, type, rpid, root, sentAtSeconds, effectiveCookie)
         }
     }
 
@@ -58,56 +83,63 @@ object CommentProbeEngine {
      * 根评论检测 (双重视角裁决)
      */
     private suspend fun evaluateRootComment(
-        context: Context,
         oid: Long,
         type: Int,
-        rpid: Long
+        rpid: Long,
+        cookie: String
     ): CommentFraudStatus {
-        val sp = context.getSharedPreferences("module_config", Context.MODE_PRIVATE)
-        val cookie = sp.getString("bili_cookie", "").orEmpty()
         val rpidPattern = """"rpid":\s*$rpid""".toRegex()
-
         val url = "https://api.bilibili.com/x/v2/reply/main?oid=$oid&type=$type&mode=2&next=0&seek_rpid=$rpid&ps=20"
+
+        XLog.i("🔎 [存活探针-根评] 开始路人视角探测: oid=$oid, rpid=$rpid")
 
         // 1. 纯路人视角查
         val anonJson = fetch(url, cookie = "")
         if (anonJson != null && rpidPattern.containsMatchIn(anonJson)) {
-            return if (anonJson.contains(""""rpid":\s*$rpid[^}]*?"invisible":\s*true""".toRegex())) {
-                CommentFraudStatus.INVISIBLE
-            } else {
-                CommentFraudStatus.NORMAL
-            }
+            val isInvisible = anonJson.contains(""""rpid":\s*$rpid[^}]*?"invisible":\s*true""".toRegex())
+            val status = if (isInvisible) CommentFraudStatus.INVISIBLE else CommentFraudStatus.NORMAL
+            XLog.i("🟢 [存活探针-根评] 路人视角检索命中: rpid=$rpid -> $status")
+            return status
         }
 
         // 2. 路人未找到，作者视角复验 (核心区别 ShadowBan 与 Deleted)
+        XLog.w("⚠️ [存活探针-根评] 路人视角未找到 rpid=$rpid，启动作者视角复验 (Cookie=${if (cookie.isNotBlank()) "已携带" else "缺失"})...")
         val authJson = if (cookie.isNotBlank()) fetch(url, cookie = cookie) else null
         val authFound = authJson != null && rpidPattern.containsMatchIn(authJson)
 
-        return if (authFound) {
+        val finalStatus = if (authFound) {
             CommentFraudStatus.SHADOW_BANNED
         } else {
             CommentFraudStatus.DELETED
         }
+
+        if (finalStatus == CommentFraudStatus.SHADOW_BANNED) {
+            XLog.w("🚨 [存活探针-根评] 判定为仅自己可见 (SHADOW_BANNED): 路人不可见但作者视角可见 (rpid=$rpid)")
+        } else {
+            XLog.w("🗑️ [存活探针-根评] 判定为已被系统秒删 (DELETED): 双重视角均未检索到 (rpid=$rpid)")
+        }
+        return finalStatus
     }
 
     /**
      * 楼中楼检测 (自适应二分 + 目标页作者双重复验)
      */
     private suspend fun evaluateSubReply(
-        context: Context,
         oid: Long,
         type: Int,
         rpid: Long,
         root: Long,
-        sentAtSeconds: Long
+        sentAtSeconds: Long,
+        cookie: String
     ): CommentFraudStatus {
-        val sp = context.getSharedPreferences("module_config", Context.MODE_PRIVATE)
-        val cookie = sp.getString("bili_cookie", "").orEmpty()
         val rpidPattern = """"rpid":\s*$rpid""".toRegex()
-
         val urlBase = "https://api.bilibili.com/x/v2/reply/reply?oid=$oid&type=$type&root=$root&ps=20&sort=0"
+
+        XLog.i("🔎 [存活探针-楼中楼] 开始探测: oid=$oid, root=$root, rpid=$rpid")
+
         val firstPageJson = fetch("$urlBase&pn=1", cookie = "")
         if (firstPageJson?.contains("\"code\":12022") == true) {
+            XLog.w("🗑️ [存活探针-楼中楼] 根评论已被删除(code=12022)，定性为 DELETED (rpid=$rpid)")
             return CommentFraudStatus.DELETED
         }
 
@@ -125,11 +157,14 @@ object CommentProbeEngine {
         var invisible = false
         var targetPage = lastPage
 
+        XLog.d("📄 [存活探针-楼中楼] 根评子评论总数: $totalCount, 计算末页: $lastPage")
+
         // 1. 优先直跳末页探测
         val lastPageJson = fetch("$urlBase&pn=$lastPage", cookie = "")
         if (lastPageJson != null && rpidPattern.containsMatchIn(lastPageJson)) {
             found = true
             invisible = lastPageJson.contains(""""rpid":\s*$rpid[^}]*?"invisible":\s*true""".toRegex())
+            XLog.i("🟢 [存活探针-楼中楼] 直跳末页($lastPage)命中: rpid=$rpid (invisible=$invisible)")
         } else if (lastPage > 1) {
             // 倒数第 2 页容差
             val prevJson = fetch("$urlBase&pn=${lastPage - 1}", cookie = "")
@@ -137,11 +172,13 @@ object CommentProbeEngine {
                 found = true
                 invisible = prevJson.contains(""""rpid":\s*$rpid[^}]*?"invisible":\s*true""".toRegex())
                 targetPage = lastPage - 1
+                XLog.i("🟢 [存活探针-楼中楼] 倒数第2页(${lastPage - 1})命中: rpid=$rpid (invisible=$invisible)")
             }
         }
 
         // 2. 自适应单调时序折半收敛 (应对数千楼大楼)
         if (!found && lastPage > 2 && sentAtSeconds > 0L) {
+            XLog.d("⚡ [存活探针-楼中楼] 启动二分时序折半探测: 1~$lastPage, sentAt=$sentAtSeconds")
             var low = 1
             var high = lastPage - 2
             var steps = 0
@@ -156,6 +193,7 @@ object CommentProbeEngine {
                     found = true
                     invisible = midJson.contains(""""rpid":\s*$rpid[^}]*?"invisible":\s*true""".toRegex())
                     targetPage = mid
+                    XLog.i("🟢 [存活探针-楼中楼] 二分折半第 $steps 步命中 (pn=$mid, rpid=$rpid)")
                     break
                 }
 
@@ -178,10 +216,13 @@ object CommentProbeEngine {
 
         // 3. 最终判定
         if (found) {
-            return if (invisible) CommentFraudStatus.INVISIBLE else CommentFraudStatus.NORMAL
+            val status = if (invisible) CommentFraudStatus.INVISIBLE else CommentFraudStatus.NORMAL
+            XLog.i("🏁 [存活探针-楼中楼] 路人视角定性完成: rpid=$rpid -> $status")
+            return status
         }
 
         // 4. 作者视角对【目标页 targetPage】双重复验
+        XLog.w("⚠️ [存活探针-楼中楼] 路人视角未找到，正在对目标页 pn=$targetPage 进行作者视角复验...")
         val authJson = if (cookie.isNotBlank()) fetch("$urlBase&pn=$targetPage", cookie = cookie) else null
         var authFound = authJson != null && rpidPattern.containsMatchIn(authJson)
 
@@ -192,10 +233,17 @@ object CommentProbeEngine {
             }
         }
 
-        return if (authFound) {
+        val finalStatus = if (authFound) {
             CommentFraudStatus.SHADOW_BANNED
         } else {
             CommentFraudStatus.DELETED
         }
+
+        if (finalStatus == CommentFraudStatus.SHADOW_BANNED) {
+            XLog.w("🚨 [存活探针-楼中楼] 判定为仅自己可见 (SHADOW_BANNED): 作者视角在 pn=$targetPage 可见 (rpid=$rpid)")
+        } else {
+            XLog.w("🗑️ [存活探针-楼中楼] 判定为已被系统秒删 (DELETED): 楼中楼双重视角均未检索到 (rpid=$rpid)")
+        }
+        return finalStatus
     }
 }

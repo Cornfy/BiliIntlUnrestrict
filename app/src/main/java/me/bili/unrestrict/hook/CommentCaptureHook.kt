@@ -5,17 +5,16 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.widget.Toast
 import io.github.libxposed.api.XposedModule
 import kotlinx.coroutines.*
 import me.bili.unrestrict.data.model.CommentFraudStatus
 import me.bili.unrestrict.detector.CommentProbeEngine
+import me.bili.unrestrict.util.XLog
 
 class CommentCaptureHook(private val module: XposedModule) {
 
     companion object {
-        private const val TAG = "BiliHook"
         private val hookScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -45,9 +44,9 @@ class CommentCaptureHook(private val module: XposedModule) {
                         result
                     }
                 }
-                Log.i(TAG, "✅ [CommentCapture] $target 挂载成功")
+                XLog.i("✅ [CommentCapture] $target 挂载成功")
             } catch (t: Throwable) {
-                Log.w(TAG, "⚠️ 挂载失败 $target: ${t.message}")
+                XLog.w("⚠️ [CommentCapture] 挂载失败 $target: ${t.message}")
             }
         }
     }
@@ -83,10 +82,10 @@ class CommentCaptureHook(private val module: XposedModule) {
             // 🎯 【终极根治】支持换行长评提取，且坚决排除 foldInfo 干扰！
             val message = extractRealMessage(itemStr)
 
-            Log.i(TAG, "🎯 [Publisher] 提取发评: rpid=$rpid, oid=$oid, uid=$uid, time=$postTime, msg=$message")
-            startLifecycleWorkflow(rpid, oid, type, root, parent, uid, message, postTime)
+            XLog.i("🎯 [发评拦截] 成功拦截发评: rpid=$rpid, oid=$oid, uid=$uid, msg=\"${message.take(30)}\"")
+            startLifecycleWorkflow(rpid, oid, type, root, parent, uid, message, postTime, cookie)
         } catch (e: Exception) {
-            Log.e(TAG, "❌ handlePublisherResult 失败: ${e.message}")
+            XLog.e("❌ [发评拦截] handlePublisherResult 失败: ${e.message}", e)
         }
     }
 
@@ -129,21 +128,23 @@ class CommentCaptureHook(private val module: XposedModule) {
         parent: Long,
         uid: Long,
         message: String,
-        postTime: Long
+        postTime: Long,
+        cookie: String
     ) {
         // 1. 发评瞬间：初态 UNKNOWN 提交入库
-        sendRecord(rpid, oid, type, root, parent, uid, message, CommentFraudStatus.UNKNOWN.name, postTime)
+        XLog.i("⏳ [发评反诈] 初态 UNKNOWN 入库，将在 4 秒后启动双重视角探针裁决 (rpid=$rpid)")
+        sendRecord(rpid, oid, type, root, parent, uid, message, CommentFraudStatus.UNKNOWN.name, postTime, cookie)
 
         // 2. 后台协程缓冲 4 秒后执行精准路人探测
         hookScope.launch {
             delay(4000L)
-            val context = getApplicationContext() ?: return@launch // 👈 优先获取 context
+            val context = getApplicationContext() ?: return@launch
             val sentAtSec = postTime / 1000L
-            val status = CommentProbeEngine.evaluateCommentStatus(context, oid, type, rpid, root, sentAtSec)
-            Log.i(TAG, "🔍 [CommentCapture] 最终定性: rpid=$rpid -> $status")
+            val status = CommentProbeEngine.evaluateCommentStatus(context, oid, type, rpid, root, sentAtSec, cookie)
+            XLog.i("🏁 [发评反诈] 真实存活定性完成: rpid=$rpid -> $status")
 
             // 更新真实状态
-            sendRecord(rpid, oid, type, root, parent, uid, message, status.name, postTime)
+            sendRecord(rpid, oid, type, root, parent, uid, message, status.name, postTime, cookie)
 
             // 3. 前台 Toast 反馈
             when (status) {
@@ -166,15 +167,11 @@ class CommentCaptureHook(private val module: XposedModule) {
         uid: Long,
         message: String,
         status: String,
-        postTime: Long
+        postTime: Long,
+        cookie: String
     ) {
         try {
             val context = getApplicationContext() ?: return
-
-            // 自动提取 B 站宿主当前的登录 Cookie (包含 SESSDATA 和 bili_jct)
-            val cookie = try {
-                android.webkit.CookieManager.getInstance().getCookie("https://bilibili.com").orEmpty()
-            } catch (_: Exception) { "" }
 
             val intent = Intent("me.bili.unrestrict.ACTION_INSERT_COMMENT").apply {
                 component = ComponentName("me.bili.unrestrict", "me.bili.unrestrict.ipc.CommentReceiver")
@@ -191,8 +188,9 @@ class CommentCaptureHook(private val module: XposedModule) {
                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
             }
             context.sendBroadcast(intent)
+            XLog.d("📡 [发评IPC] 广播投递发评记录成功 (rpid=$rpid, status=$status)")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ 广播投递异常: ${e.message}")
+            XLog.e("❌ [发评IPC] 广播投递异常: ${e.message}", e)
         }
     }
 

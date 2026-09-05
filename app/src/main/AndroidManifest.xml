@@ -5,10 +5,26 @@
 
     <application
         android:allowBackup="false"
+        android:description="@string/xposed_description_short"
         android:icon="@mipmap/ic_launcher"
         android:label="BiliIntl Unrestrict"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <!-- Xposed / LSPosed / Vector 模块元数据 -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="专为哔哩哔哩海外版设计的发评反诈全息中心与青少年模式中和增强模块"
+            android:resource="@string/xposed_description" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="93" />
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/xposed_scope" />
 
         <activity
             android:name="me.bili.unrestrict.ui.MainActivity"
@@ -18,6 +34,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 同步跨进程配置 ContentProvider -->
+        <provider
+            android:name="me.bili.unrestrict.ipc.ConfigProvider"
+            android:authorities="me.bili.unrestrict.provider.config"
+            android:exported="true" />
 
         <!-- 显式跨进程接收器 -->
         <receiver

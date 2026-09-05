@@ -2,6 +2,7 @@ package me.bili.unrestrict.ui
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +28,11 @@ class MainActivity : ComponentActivity() {
             AppTheme {
                 var selectedTab by rememberSaveable { mutableIntStateOf(0) }
                 var currentScreen by rememberSaveable { mutableStateOf("main") }
+
+                // 拦截系统返回键/侧滑手势：在日志页面时返回主页面，避免直接退出应用
+                BackHandler(enabled = currentScreen == "logs") {
+                    currentScreen = "main"
+                }
 
                 if (currentScreen == "logs") {
                     // 全屏日志查看页面（带顶部返回键，无底部导航栏）

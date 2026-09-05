@@ -128,13 +128,16 @@ object CommentFraudRepository {
     suspend fun recheckRecord(context: Context, record: CommentFraudRecord): Result<CommentFraudStatus> = withContext(Dispatchers.IO) {
         try {
             val sentAt = if (record.post_time > 0L) record.post_time / 1000L else 0L
+            val sp = context.getSharedPreferences("module_config", Context.MODE_PRIVATE)
+            val cookie = sp.getString("bili_cookie", "").orEmpty()
             val newStatus = me.bili.unrestrict.detector.CommentProbeEngine.evaluateCommentStatus(
                 context = context,
                 oid = record.oid,
                 type = record.type,
                 rpid = record.rpid,
                 root = record.root,
-                sentAtSeconds = sentAt
+                sentAtSeconds = sentAt,
+                cookie = cookie
             )
 
             val updated = record.copy(
