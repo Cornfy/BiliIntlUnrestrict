@@ -14,9 +14,14 @@ import me.bili.unrestrict.util.XLog
 
 class CommentCaptureHook(private val module: XposedModule) {
 
+    private val legacyHook = LegacyCommentCaptureHook(module, ::readCookie, ::onPublished)
+    private val kntrHook = KntrCommentCaptureHook(module, ::readCookie, ::onPublished)
+    private val installed = HashSet<java.lang.reflect.Method>()
+
     companion object {
         private val hookScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         private val mainHandler = Handler(Looper.getMainLooper())
+        private val recentComments = RecentCommentIds()
 
         fun showToast(context: Context?, text: String) {
             if (context == null) return
@@ -26,6 +31,7 @@ class CommentCaptureHook(private val module: XposedModule) {
         }
     }
 
+    @Synchronized
     fun install(classLoader: ClassLoader) {
         val targets = listOf(
             "com.bilibili.app.comment3.data.source.v1.PublisherDataSourceV1\$post\$2",
@@ -36,6 +42,7 @@ class CommentCaptureHook(private val module: XposedModule) {
             try {
                 val clazz = classLoader.loadClass(target)
                 clazz.getDeclaredMethod("invokeSuspend", Any::class.java).let { method ->
+                    if (method in installed) return@let
                     module.hook(method).intercept { chain ->
                         val result = chain.proceed()
                         if (result != null) {
@@ -43,15 +50,20 @@ class CommentCaptureHook(private val module: XposedModule) {
                         }
                         result
                     }
+                    installed.add(method)
                 }
                 XLog.i("✅ [CommentCapture] $target 挂载成功")
             } catch (t: Throwable) {
                 XLog.w("⚠️ [CommentCapture] 挂载失败 $target: ${t.message}")
             }
         }
+        legacyHook.install(classLoader)
+        kntrHook.install(classLoader)
     }
 
     private fun handlePublisherResult(replyObj: Any) {
+        // lightPost first returns COROUTINE_SUSPENDED; only its final reply is a result.
+        if (replyObj.javaClass.name != "com.bilibili.app.comment3.data.model.CommentAddReply") return
         try {
             val dField = replyObj.javaClass.getField("d")
             val commentItem = dField.get(replyObj) ?: return
@@ -65,9 +77,7 @@ class CommentCaptureHook(private val module: XposedModule) {
             val parent = itemClass.getField("e").getLong(commentItem)
 
             // 🎯 用户 UID 抓取
-            val cookie = try {
-                android.webkit.CookieManager.getInstance().getCookie("https://bilibili.com").orEmpty()
-            } catch (_: Exception) { "" }
+            val cookie = readCookie()
 
             val uidFromItem = Regex("""mid=(\d+)""").find(itemStr)?.groupValues?.get(1)?.toLongOrNull()
             val uidFromCookie = Regex("""DedeUserID=(\d+)""").find(cookie)?.groupValues?.get(1)?.toLongOrNull()
@@ -82,11 +92,29 @@ class CommentCaptureHook(private val module: XposedModule) {
             // 🎯 【终极根治】支持换行长评提取，且坚决排除 foldInfo 干扰！
             val message = extractRealMessage(itemStr)
 
-            XLog.i("🎯 [发评拦截] 成功拦截发评: rpid=$rpid, oid=$oid, uid=$uid, msg=\"${message.take(30)}\"")
-            startLifecycleWorkflow(rpid, oid, type, root, parent, uid, message, postTime, cookie)
+            onPublished(PublishedComment(rpid, oid, type, root, parent, uid, message, postTime),
+                cookie, "comment3")
         } catch (e: Exception) {
             XLog.e("❌ [发评拦截] handlePublisherResult 失败: ${e.message}", e)
         }
+    }
+
+    private fun readCookie(): String = try {
+        android.webkit.CookieManager.getInstance().getCookie("https://bilibili.com").orEmpty()
+    } catch (_: Exception) { "" }
+
+    private fun onPublished(comment: PublishedComment, cookie: String, source: String) {
+        if (comment.oid <= 0L || comment.type <= 0 || comment.root < 0L || comment.parent < 0L) return
+        if (!recentComments.claim(comment.rpid)) {
+            XLog.d("[CommentCapture] 跳过无效或重复发评: source=$source, rpid=${comment.rpid}")
+            return
+        }
+        val cookieUid = Regex("""(?:^|;\s*)DedeUserID=(\d+)""").find(cookie)
+            ?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+        val uid = comment.uid.takeIf { it > 0L } ?: cookieUid
+        XLog.i("🎯 [发评拦截] 成功拦截发评: source=$source, rpid=${comment.rpid}, oid=${comment.oid}, type=${comment.type}, root=${comment.root}, parent=${comment.parent}")
+        startLifecycleWorkflow(comment.rpid, comment.oid, comment.type, comment.root,
+            comment.parent, uid, comment.message, comment.postTime, cookie)
     }
 
     /**
