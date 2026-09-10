@@ -22,6 +22,9 @@ object ConfigManager {
     @Volatile
     var enableDebugLogging: Boolean = true
 
+    @Volatile
+    var retainFeedHistory: Boolean = true
+
     fun init(context: Context) {
         val sp = context.getSharedPreferences("bili_unrestrict_prefs", Context.MODE_PRIVATE)
 
@@ -37,9 +40,11 @@ object ConfigManager {
             if (bundle != null) {
                 bypassTeenagerMode = bundle.getBoolean("bypass_teenager_mode", true)
                 enableDebugLogging = bundle.getBoolean("enable_debug_logging", true)
+                retainFeedHistory = bundle.getBoolean("retain_feed_history", true)
                 sp.edit()
                     .putBoolean("bypass_teenager_mode", bypassTeenagerMode)
                     .putBoolean("enable_debug_logging", enableDebugLogging)
+                    .putBoolean("retain_feed_history", retainFeedHistory)
                     .apply()
                 providerSynced = true
                 Log.i(TAG, "🔧 [ConfigManager] 同步读取 Provider 配置成功: bypass=$bypassTeenagerMode, log=$enableDebugLogging")
@@ -52,6 +57,7 @@ object ConfigManager {
         if (!providerSynced) {
             bypassTeenagerMode = sp.getBoolean("bypass_teenager_mode", true)
             enableDebugLogging = sp.getBoolean("enable_debug_logging", true)
+            retainFeedHistory = sp.getBoolean("retain_feed_history", true)
             Log.i(TAG, "🔧 [ConfigManager] 读取宿主缓存配置: bypass=$bypassTeenagerMode, log=$enableDebugLogging")
         }
 
@@ -73,6 +79,12 @@ object ConfigManager {
                             XLog.clearBuffer()
                         }
                         Log.i(TAG, "⚡ [ConfigManager] 日志开关已更新: enableDebugLogging=$v")
+                    }
+                    if (intent.hasExtra("retain_feed_history")) {
+                        val v = intent.getBooleanExtra("retain_feed_history", true)
+                        retainFeedHistory = v
+                        sp.edit().putBoolean("retain_feed_history", v).apply()
+                        Log.i(TAG, "⚡ [ConfigManager] 首页刷新保留历史开关已更新: retainFeedHistory=$v")
                     }
                 }
             }

@@ -26,6 +26,7 @@ fun EnhanceSettingsScreen(onNavigateToLogs: () -> Unit) {
     val sp = remember { context.getSharedPreferences("module_config", Context.MODE_PRIVATE) }
     var bypassTeenager by remember { mutableStateOf(sp.getBoolean("bypass_teenager_mode", true)) }
     var debugLogEnabled by remember { mutableStateOf(sp.getBoolean("enable_debug_logging", true)) }
+    var retainFeedHistory by remember { mutableStateOf(sp.getBoolean("retain_feed_history", true)) }
 
     fun notifyBiliConfigChange(key: String, value: Boolean) {
         try {
@@ -152,6 +153,35 @@ fun EnhanceSettingsScreen(onNavigateToLogs: () -> Unit) {
 
             item {
                 Text(
+                    text = "📺 首页信息流增强",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    SwitchPreferenceItem(
+                        icon = Icons.Outlined.Refresh,
+                        title = "首页刷新保留历史视频流",
+                        description = "下拉刷新时不清除上一批视频，在顶部追加新视频并保留历史浏览记录",
+                        checked = retainFeedHistory,
+                        onCheckedChange = { isChecked ->
+                            retainFeedHistory = isChecked
+                            sp.edit().putBoolean("retain_feed_history", isChecked).apply()
+                            notifyBiliConfigChange("retain_feed_history", isChecked)
+                        }
+                    )
+                }
+            }
+
+            item {
+                Text(
                     text = "🚀 即将支持 (路线图预览)",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
@@ -170,15 +200,6 @@ fun EnhanceSettingsScreen(onNavigateToLogs: () -> Unit) {
                             icon = Icons.Outlined.Link,
                             title = "净化视频分享链接 (开发中)",
                             description = "自动去除 B 站复制链接中的追踪参数 (buvid/mid)，还原干净短链"
-                        )
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                        )
-                        ComingSoonItem(
-                            icon = Icons.Outlined.Refresh,
-                            title = "首页刷新保留历史视频流 (开发中)",
-                            description = "下拉刷新时不清除上一批视频，追加保留浏览历史"
                         )
                     }
                 }

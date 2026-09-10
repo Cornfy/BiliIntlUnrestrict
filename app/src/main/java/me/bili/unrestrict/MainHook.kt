@@ -7,6 +7,7 @@ import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam
 import me.bili.unrestrict.hook.CommentCaptureHook
 import me.bili.unrestrict.hook.ConfigManager
 import me.bili.unrestrict.hook.TeenagerBypassHook
+import me.bili.unrestrict.hook.FeedRetainHook
 import me.bili.unrestrict.util.XLog
 
 class MainHook : XposedModule() {
@@ -17,6 +18,7 @@ class MainHook : XposedModule() {
 
     private val teenagerHook = TeenagerBypassHook(this)
     private val commentHook = CommentCaptureHook(this)
+    private val feedRetainHook = FeedRetainHook(this)
 
     override fun onPackageLoaded(param: PackageLoadedParam) {
         super.onPackageLoaded(param)
@@ -24,6 +26,7 @@ class MainHook : XposedModule() {
         XLog.i("🚀 [LibXposed 102] 模块载入 B站包")
 
         teenagerHook.install(param.defaultClassLoader)
+        feedRetainHook.install(param.defaultClassLoader)
     }
 
     override fun onPackageReady(param: PackageReadyParam) {
@@ -62,5 +65,6 @@ class MainHook : XposedModule() {
 
         teenagerHook.install(classLoader)
         commentHook.install(classLoader)
+        feedRetainHook.install(classLoader)
     }
 }

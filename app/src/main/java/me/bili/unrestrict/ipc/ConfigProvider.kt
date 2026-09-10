@@ -18,6 +18,7 @@ class ConfigProvider : ContentProvider() {
 
         const val KEY_BYPASS_TEENAGER = "bypass_teenager_mode"
         const val KEY_ENABLE_DEBUG_LOG = "enable_debug_logging"
+        const val KEY_RETAIN_FEED_HISTORY = "retain_feed_history"
         const val KEY_BILI_COOKIE = "bili_cookie"
     }
 
@@ -32,6 +33,7 @@ class ConfigProvider : ContentProvider() {
                 Bundle().apply {
                     putBoolean(KEY_BYPASS_TEENAGER, sp.getBoolean(KEY_BYPASS_TEENAGER, true))
                     putBoolean(KEY_ENABLE_DEBUG_LOG, sp.getBoolean(KEY_ENABLE_DEBUG_LOG, true))
+                    putBoolean(KEY_RETAIN_FEED_HISTORY, sp.getBoolean(KEY_RETAIN_FEED_HISTORY, true))
                     putString(KEY_BILI_COOKIE, sp.getString(KEY_BILI_COOKIE, "").orEmpty())
                 }
             }
@@ -43,6 +45,9 @@ class ConfigProvider : ContentProvider() {
                     }
                     if (bundle.containsKey(KEY_ENABLE_DEBUG_LOG)) {
                         editor.putBoolean(KEY_ENABLE_DEBUG_LOG, bundle.getBoolean(KEY_ENABLE_DEBUG_LOG))
+                    }
+                    if (bundle.containsKey(KEY_RETAIN_FEED_HISTORY)) {
+                        editor.putBoolean(KEY_RETAIN_FEED_HISTORY, bundle.getBoolean(KEY_RETAIN_FEED_HISTORY))
                     }
                     if (bundle.containsKey(KEY_BILI_COOKIE)) {
                         editor.putString(KEY_BILI_COOKIE, bundle.getString(KEY_BILI_COOKIE))
