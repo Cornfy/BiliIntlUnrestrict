@@ -17,7 +17,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="专为哔哩哔哩海外版设计的发评反诈全息中心与青少年模式中和增强模块"
+            android:value="专为哔哩哔哩海外版（6.4.0+）设计的发评反诈历史中心，与功能增强模块"
             android:resource="@string/xposed_description" />
         <meta-data
             android:name="xposedminversion"

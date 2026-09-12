@@ -230,6 +230,7 @@ fun EnhanceSettingsScreen(onNavigateToLogs: () -> Unit) {
                         Text("架构: LibXposed 102", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("引擎: biliSendCheck 双重视角反诈探针", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("作用域: com.bilibili.app.in", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("已验证版本: 6.4.0 ~ 6.5.0", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
