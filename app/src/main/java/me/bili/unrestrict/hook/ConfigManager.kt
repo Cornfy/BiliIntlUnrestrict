@@ -7,11 +7,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
-import android.util.Log
 import me.bili.unrestrict.util.XLog
 
 object ConfigManager {
-    private const val TAG = "BiliHook"
     const val ACTION_UPDATE_CONFIG = "me.bili.unrestrict.ACTION_UPDATE_CONFIG"
     const val ACTION_REQUEST_SYNC = "me.bili.unrestrict.ACTION_REQUEST_SYNC"
     private const val PROVIDER_URI = "content://me.bili.unrestrict.provider.config"
@@ -47,10 +45,10 @@ object ConfigManager {
                     .putBoolean("retain_feed_history", retainFeedHistory)
                     .apply()
                 providerSynced = true
-                Log.i(TAG, "🔧 [ConfigManager] 同步读取 Provider 配置成功: bypass=$bypassTeenagerMode, log=$enableDebugLogging")
+                XLog.i("🔧 [ConfigManager] 同步读取 Provider 配置成功: bypass=$bypassTeenagerMode, log=$enableDebugLogging, retain=$retainFeedHistory")
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "⚠️ [ConfigManager] Provider 读取失败，降级读取本地缓存: ${t.message}")
+            XLog.w("⚠️ [ConfigManager] Provider 读取失败，降级读取本地缓存: ${t.message}")
         }
 
         // 2. 降级备选：从宿主本地 SharedPreferences 缓存读取
@@ -58,7 +56,7 @@ object ConfigManager {
             bypassTeenagerMode = sp.getBoolean("bypass_teenager_mode", true)
             enableDebugLogging = sp.getBoolean("enable_debug_logging", true)
             retainFeedHistory = sp.getBoolean("retain_feed_history", true)
-            Log.i(TAG, "🔧 [ConfigManager] 读取宿主缓存配置: bypass=$bypassTeenagerMode, log=$enableDebugLogging")
+            XLog.i("🔧 [ConfigManager] 读取宿主缓存配置: bypass=$bypassTeenagerMode, log=$enableDebugLogging, retain=$retainFeedHistory")
         }
 
         // 3. 注册广播动态接收配置变动
@@ -69,7 +67,7 @@ object ConfigManager {
                         val v = intent.getBooleanExtra("bypass_teenager_mode", true)
                         bypassTeenagerMode = v
                         sp.edit().putBoolean("bypass_teenager_mode", v).apply()
-                        Log.i(TAG, "⚡ [ConfigManager] 青少年模式开关已更新: bypassTeenagerMode=$v")
+                        XLog.i("⚡ [ConfigManager] 青少年模式开关已更新: bypassTeenagerMode=$v")
                     }
                     if (intent.hasExtra("enable_debug_logging")) {
                         val v = intent.getBooleanExtra("enable_debug_logging", true)
@@ -78,13 +76,13 @@ object ConfigManager {
                         if (!v) {
                             XLog.clearBuffer()
                         }
-                        Log.i(TAG, "⚡ [ConfigManager] 日志开关已更新: enableDebugLogging=$v")
+                        XLog.i("⚡ [ConfigManager] 日志开关已更新: enableDebugLogging=$v")
                     }
                     if (intent.hasExtra("retain_feed_history")) {
                         val v = intent.getBooleanExtra("retain_feed_history", true)
                         retainFeedHistory = v
                         sp.edit().putBoolean("retain_feed_history", v).apply()
-                        Log.i(TAG, "⚡ [ConfigManager] 首页刷新保留历史开关已更新: retainFeedHistory=$v")
+                        XLog.i("⚡ [ConfigManager] 首页刷新保留历史开关已更新: retainFeedHistory=$v")
                     }
                 }
             }

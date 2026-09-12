@@ -15,7 +15,8 @@ class FeedRetainHook(private val module: XposedModule) {
             val methodI = configClass.getDeclaredMethod("i")
             module.hook(methodI).intercept { chain ->
                 if (ConfigManager.retainFeedHistory) {
-                    false // 强制返回 false，保留旧卡片并置顶新卡片
+                    XLog.i("📺 [FeedRetainHook] 拦截到首页推荐流清空事件，已阻止 clear() 并保留旧内容")
+                    false
                 } else {
                     chain.proceed()
                 }
