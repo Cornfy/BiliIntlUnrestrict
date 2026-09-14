@@ -19,6 +19,7 @@ class ConfigProvider : ContentProvider() {
         const val KEY_BYPASS_TEENAGER = "bypass_teenager_mode"
         const val KEY_ENABLE_DEBUG_LOG = "enable_debug_logging"
         const val KEY_RETAIN_FEED_HISTORY = "retain_feed_history"
+        const val KEY_CLEAN_SHARE_LINKS = "clean_share_links"
         const val KEY_BILI_COOKIE = "bili_cookie"
     }
 
@@ -34,12 +35,16 @@ class ConfigProvider : ContentProvider() {
                     putBoolean(KEY_BYPASS_TEENAGER, sp.getBoolean(KEY_BYPASS_TEENAGER, true))
                     putBoolean(KEY_ENABLE_DEBUG_LOG, sp.getBoolean(KEY_ENABLE_DEBUG_LOG, true))
                     putBoolean(KEY_RETAIN_FEED_HISTORY, sp.getBoolean(KEY_RETAIN_FEED_HISTORY, true))
+                    putBoolean(KEY_CLEAN_SHARE_LINKS, sp.getBoolean(KEY_CLEAN_SHARE_LINKS, true))
                     putString(KEY_BILI_COOKIE, sp.getString(KEY_BILI_COOKIE, "").orEmpty())
                 }
             }
             METHOD_UPDATE_CONFIG -> {
                 extras?.let { bundle ->
                     val editor = sp.edit()
+                    if (bundle.containsKey(KEY_CLEAN_SHARE_LINKS)) {
+                        editor.putBoolean(KEY_CLEAN_SHARE_LINKS, bundle.getBoolean(KEY_CLEAN_SHARE_LINKS))
+                    }
                     if (bundle.containsKey(KEY_BYPASS_TEENAGER)) {
                         editor.putBoolean(KEY_BYPASS_TEENAGER, bundle.getBoolean(KEY_BYPASS_TEENAGER))
                     }

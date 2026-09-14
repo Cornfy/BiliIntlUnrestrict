@@ -8,6 +8,7 @@ import me.bili.unrestrict.hook.CommentCaptureHook
 import me.bili.unrestrict.hook.ConfigManager
 import me.bili.unrestrict.hook.TeenagerBypassHook
 import me.bili.unrestrict.hook.FeedRetainHook
+import me.bili.unrestrict.hook.ShareLinkHook
 import me.bili.unrestrict.util.XLog
 
 class MainHook : XposedModule() {
@@ -19,6 +20,7 @@ class MainHook : XposedModule() {
     private val teenagerHook = TeenagerBypassHook(this)
     private val commentHook = CommentCaptureHook(this)
     private val feedRetainHook = FeedRetainHook(this)
+    private val shareLinkHook = ShareLinkHook(this)
 
     override fun onPackageLoaded(param: PackageLoadedParam) {
         super.onPackageLoaded(param)
@@ -35,6 +37,7 @@ class MainHook : XposedModule() {
         XLog.i("🚀 [LibXposed 102] 完整 Dex 就绪，挂载核心拦截器")
 
         val classLoader = param.classLoader
+        shareLinkHook.install(classLoader)
 
         // 尝试提前获取 Application 上下文初始化配置
         try {

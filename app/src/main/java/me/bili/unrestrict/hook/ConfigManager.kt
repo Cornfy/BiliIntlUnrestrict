@@ -23,6 +23,9 @@ object ConfigManager {
     @Volatile
     var retainFeedHistory: Boolean = true
 
+    @Volatile
+    var cleanShareLinks: Boolean = true
+
     fun init(context: Context) {
         val sp = context.getSharedPreferences("bili_unrestrict_prefs", Context.MODE_PRIVATE)
 
@@ -39,10 +42,12 @@ object ConfigManager {
                 bypassTeenagerMode = bundle.getBoolean("bypass_teenager_mode", true)
                 enableDebugLogging = bundle.getBoolean("enable_debug_logging", true)
                 retainFeedHistory = bundle.getBoolean("retain_feed_history", true)
+                cleanShareLinks = bundle.getBoolean("clean_share_links", true)
                 sp.edit()
                     .putBoolean("bypass_teenager_mode", bypassTeenagerMode)
                     .putBoolean("enable_debug_logging", enableDebugLogging)
                     .putBoolean("retain_feed_history", retainFeedHistory)
+                    .putBoolean("clean_share_links", cleanShareLinks)
                     .apply()
                 providerSynced = true
                 XLog.i("🔧 [ConfigManager] 同步读取 Provider 配置成功: bypass=$bypassTeenagerMode, log=$enableDebugLogging, retain=$retainFeedHistory")
@@ -56,6 +61,7 @@ object ConfigManager {
             bypassTeenagerMode = sp.getBoolean("bypass_teenager_mode", true)
             enableDebugLogging = sp.getBoolean("enable_debug_logging", true)
             retainFeedHistory = sp.getBoolean("retain_feed_history", true)
+            cleanShareLinks = sp.getBoolean("clean_share_links", true)
             XLog.i("🔧 [ConfigManager] 读取宿主缓存配置: bypass=$bypassTeenagerMode, log=$enableDebugLogging, retain=$retainFeedHistory")
         }
 
@@ -63,6 +69,11 @@ object ConfigManager {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 if (intent.action == ACTION_UPDATE_CONFIG) {
+                    if (intent.hasExtra("clean_share_links")) {
+                        cleanShareLinks = intent.getBooleanExtra("clean_share_links", true)
+                        sp.edit().putBoolean("clean_share_links", cleanShareLinks).apply()
+                        XLog.i("[ConfigManager] 视频分享净化开关已更新: $cleanShareLinks")
+                    }
                     if (intent.hasExtra("bypass_teenager_mode")) {
                         val v = intent.getBooleanExtra("bypass_teenager_mode", true)
                         bypassTeenagerMode = v

@@ -33,6 +33,7 @@ class CommentReceiver : BroadcastReceiver() {
                 setPackage("com.bilibili.app.in")
                 putExtra("bypass_teenager_mode", bypass)
                 putExtra("enable_debug_logging", logEnabled)
+                putExtra("clean_share_links", sp.getBoolean("clean_share_links", true))
                 addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
             }
             context.sendBroadcast(replyIntent)

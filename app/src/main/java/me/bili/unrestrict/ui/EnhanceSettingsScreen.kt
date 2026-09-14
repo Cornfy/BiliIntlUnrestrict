@@ -27,6 +27,7 @@ fun EnhanceSettingsScreen(onNavigateToLogs: () -> Unit) {
     var bypassTeenager by remember { mutableStateOf(sp.getBoolean("bypass_teenager_mode", true)) }
     var debugLogEnabled by remember { mutableStateOf(sp.getBoolean("enable_debug_logging", true)) }
     var retainFeedHistory by remember { mutableStateOf(sp.getBoolean("retain_feed_history", true)) }
+    var cleanShareLinks by remember { mutableStateOf(sp.getBoolean("clean_share_links", true)) }
 
     fun notifyBiliConfigChange(key: String, value: Boolean) {
         try {
@@ -79,6 +80,66 @@ fun EnhanceSettingsScreen(onNavigateToLogs: () -> Unit) {
                             notifyBiliConfigChange("bypass_teenager_mode", isChecked)
                         }
                     )
+                }
+            }
+
+            item {
+                Text(
+                    text = "📺 首页信息流增强",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    SwitchPreferenceItem(
+                        icon = Icons.Outlined.Refresh,
+                        title = "首页刷新保留历史视频流",
+                        description = "下拉刷新时不清除上一批视频，在顶部追加新视频并保留历史浏览记录",
+                        checked = retainFeedHistory,
+                        onCheckedChange = { isChecked ->
+                            retainFeedHistory = isChecked
+                            sp.edit().putBoolean("retain_feed_history", isChecked).apply()
+                            notifyBiliConfigChange("retain_feed_history", isChecked)
+                        }
+                    )
+                }
+            }
+
+            item {
+                Text(
+                    text = "🔗 分享链接",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column {
+                        SwitchPreferenceItem(
+                            icon = Icons.Outlined.Link,
+                            title = "净化视频分享链接",
+                            description = "复制链接、更多：标题换行后附 BV 长链接，保留分 P，移除已知追踪参数",
+                            checked = cleanShareLinks,
+                            onCheckedChange = { enabled ->
+                                cleanShareLinks = enabled
+                                sp.edit().putBoolean("clean_share_links", enabled).apply()
+                                notifyBiliConfigChange("clean_share_links", enabled)
+                            }
+                        )
+                    }
                 }
             }
 
@@ -147,60 +208,6 @@ fun EnhanceSettingsScreen(onNavigateToLogs: () -> Unit) {
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    }
-                }
-            }
-
-            item {
-                Text(
-                    text = "📺 首页信息流增强",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            item {
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    SwitchPreferenceItem(
-                        icon = Icons.Outlined.Refresh,
-                        title = "首页刷新保留历史视频流",
-                        description = "下拉刷新时不清除上一批视频，在顶部追加新视频并保留历史浏览记录",
-                        checked = retainFeedHistory,
-                        onCheckedChange = { isChecked ->
-                            retainFeedHistory = isChecked
-                            sp.edit().putBoolean("retain_feed_history", isChecked).apply()
-                            notifyBiliConfigChange("retain_feed_history", isChecked)
-                        }
-                    )
-                }
-            }
-
-            item {
-                Text(
-                    text = "🚀 即将支持 (路线图预览)",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            item {
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column {
-                        ComingSoonItem(
-                            icon = Icons.Outlined.Link,
-                            title = "净化视频分享链接 (开发中)",
-                            description = "自动去除 B 站复制链接中的追踪参数 (buvid/mid)，还原干净短链"
-                        )
                     }
                 }
             }
@@ -279,42 +286,5 @@ private fun SwitchPreferenceItem(
             checked = checked,
             onCheckedChange = onCheckedChange
         )
-    }
-}
-
-@Composable
-private fun ComingSoonItem(
-    icon: ImageVector,
-    title: String,
-    description: String
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = description,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-            )
-        }
     }
 }
