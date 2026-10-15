@@ -1,6 +1,6 @@
 name=BiliIntl Unrestrict
-version=1.0.5
-versionCode=6
+version=1.0.7
+versionCode=8
 author=Cornfy
 minApiVersion=101
 targetApiVersion=102
