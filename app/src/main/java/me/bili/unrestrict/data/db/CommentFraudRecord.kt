@@ -71,7 +71,7 @@ data class CommentFraudRecord(
             val days = if (post_time > 0L && timeDiff > 0L) (timeDiff / (1000L * 60 * 60 * 24)).toInt() else 0
 
             return when {
-                curr == CommentFraudStatus.UNKNOWN -> "⏳ 状态检测中 (等待系统处理...)"
+                curr == CommentFraudStatus.UNKNOWN -> "⚪ 状态待确定 (本轮未能定性)"
                 curr == CommentFraudStatus.NORMAL -> "🟢 评论正常显示 (路人视角可见)"
                 init == CommentFraudStatus.NORMAL && curr == CommentFraudStatus.SHADOW_BANNED -> {
                     if (days > 0) "⚠️ 秋后算账 (发评 $days 天后转为 shadowBan)"

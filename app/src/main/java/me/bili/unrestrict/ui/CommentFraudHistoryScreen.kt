@@ -71,6 +71,22 @@ fun CommentFraudHistoryScreen() {
         if (selectedFilter == null) searchedRecords else searchedRecords.filter { it.fraudStatus == selectedFilter }
     }
 
+    // 各状态的条数（跟随搜索收敛），用于「有记录才显示该芯片」，避免出现永远空的死芯片
+    val statusCounts = remember(searchedRecords) {
+        searchedRecords.groupingBy { it.fraudStatus }.eachCount()
+    }
+    val statusChipDefs = listOf(
+        CommentFraudStatus.NORMAL to "🟢 正常",
+        CommentFraudStatus.SHADOW_BANNED to "🔴 仅自己可见",
+        CommentFraudStatus.DELETED to "⚫ 已失效",
+        CommentFraudStatus.INVISIBLE to "🟠 软屏蔽",
+        CommentFraudStatus.UNDER_REVIEW to "🟡 审核中",
+        CommentFraudStatus.UNKNOWN to "⚪ 状态待确定"
+    )
+    val visibleStatusChips = statusChipDefs.filter { (status, _) ->
+        (statusCounts[status] ?: 0) > 0 || selectedFilter == status
+    }
+
     // 搜索展开时按返回键先收起搜索框，而不是直接离开页面
     BackHandler(enabled = searchActive) {
         searchActive = false
@@ -164,28 +180,15 @@ fun CommentFraudHistoryScreen() {
                         FilterChip(
                             selected = selectedFilter == null,
                             onClick = { selectedFilter = null },
-                            label = { Text("全部 (${allRecords.size})") }
+                            label = { Text("全部 (${searchedRecords.size})") }
                         )
                     }
-                    item {
+                    items(visibleStatusChips) { (status, label) ->
+                        val count = statusCounts[status] ?: 0
                         FilterChip(
-                            selected = selectedFilter == CommentFraudStatus.NORMAL,
-                            onClick = { selectedFilter = if (selectedFilter == CommentFraudStatus.NORMAL) null else CommentFraudStatus.NORMAL },
-                            label = { Text("🟢 正常") }
-                        )
-                    }
-                    item {
-                        FilterChip(
-                            selected = selectedFilter == CommentFraudStatus.SHADOW_BANNED,
-                            onClick = { selectedFilter = if (selectedFilter == CommentFraudStatus.SHADOW_BANNED) null else CommentFraudStatus.SHADOW_BANNED },
-                            label = { Text("🔴 仅自己可见") }
-                        )
-                    }
-                    item {
-                        FilterChip(
-                            selected = selectedFilter == CommentFraudStatus.DELETED,
-                            onClick = { selectedFilter = if (selectedFilter == CommentFraudStatus.DELETED) null else CommentFraudStatus.DELETED },
-                            label = { Text("⚫ 已失效") }
+                            selected = selectedFilter == status,
+                            onClick = { selectedFilter = if (selectedFilter == status) null else status },
+                            label = { Text(if (count > 0) "$label ($count)" else label) }
                         )
                     }
                 }
@@ -404,7 +407,7 @@ private fun CommentFraudItemCard(
             CommentFraudStatus.DELETED -> "已失效" to Color.DarkGray
             CommentFraudStatus.INVISIBLE -> "软屏蔽" to iOSOrange
             CommentFraudStatus.UNDER_REVIEW -> "审核中" to iOSOrange
-            CommentFraudStatus.UNKNOWN -> "状态未知" to Color.Gray
+            CommentFraudStatus.UNKNOWN -> "状态待确定" to Color.Gray
         }
     }
 
