@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
@@ -16,20 +17,30 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import me.bili.unrestrict.data.db.CommentFraudRecord
+import me.bili.unrestrict.data.model.CommentFraudSearch
 import me.bili.unrestrict.data.model.CommentFraudStatus
 import me.bili.unrestrict.data.repository.CommentFraudRepository
 import me.bili.unrestrict.ui.theme.*
@@ -48,9 +59,22 @@ fun CommentFraudHistoryScreen() {
     var recordToDeleteOnBili by remember { mutableStateOf<CommentFraudRecord?>(null) }
     var recheckingRpid by remember { mutableStateOf<Long?>(null) }
     var deletingRpid by remember { mutableStateOf<Long?>(null) } // 👈 删评中状态
+    var searchActive by rememberSaveable { mutableStateOf(false) }
+    var searchText by rememberSaveable { mutableStateOf("") }
 
-    val filteredRecords = remember(allRecords, selectedFilter) {
-        if (selectedFilter == null) allRecords else allRecords.filter { it.fraudStatus == selectedFilter }
+    // 关键词先于状态筛选生效，顶部 Chip 的计数也随之收敛到搜索结果
+    val searchQuery = remember(searchText) { CommentFraudSearch.parse(searchText) }
+    val searchedRecords = remember(allRecords, searchText) {
+        CommentFraudSearch.filter(allRecords, searchText)
+    }
+    val filteredRecords = remember(searchedRecords, selectedFilter) {
+        if (selectedFilter == null) searchedRecords else searchedRecords.filter { it.fraudStatus == selectedFilter }
+    }
+
+    // 搜索展开时按返回键先收起搜索框，而不是直接离开页面
+    BackHandler(enabled = searchActive) {
+        searchActive = false
+        searchText = ""
     }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -91,25 +115,39 @@ fun CommentFraudHistoryScreen() {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("发评反诈历史", fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = { importLauncher.launch("application/json") }) {
-                        Icon(Icons.Outlined.FileDownload, contentDescription = "导入备份")
+            if (searchActive) {
+                SearchTopBar(
+                    keyword = searchText,
+                    onKeywordChange = { searchText = it },
+                    onClose = {
+                        searchActive = false
+                        searchText = ""
                     }
-                    IconButton(onClick = {
-                        val fileName = "biliSendCheck_backup_${System.currentTimeMillis()}.json"
-                        exportLauncher.launch(fileName)
-                    }) {
-                        Icon(Icons.Outlined.FileUpload, contentDescription = "导出备份")
-                    }
-                    if (allRecords.isNotEmpty()) {
-                        IconButton(onClick = { showClearDialog = true }) {
-                            Icon(Icons.Outlined.DeleteSweep, contentDescription = "清空全部", tint = MaterialTheme.colorScheme.error)
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("发评反诈历史", fontWeight = FontWeight.Bold) },
+                    actions = {
+                        IconButton(onClick = { searchActive = true }) {
+                            Icon(Icons.Outlined.Search, contentDescription = "搜索评论")
+                        }
+                        IconButton(onClick = { importLauncher.launch("application/json") }) {
+                            Icon(Icons.Outlined.FileDownload, contentDescription = "导入备份")
+                        }
+                        IconButton(onClick = {
+                            val fileName = "biliSendCheck_backup_${System.currentTimeMillis()}.json"
+                            exportLauncher.launch(fileName)
+                        }) {
+                            Icon(Icons.Outlined.FileUpload, contentDescription = "导出备份")
+                        }
+                        if (allRecords.isNotEmpty()) {
+                            IconButton(onClick = { showClearDialog = true }) {
+                                Icon(Icons.Outlined.DeleteSweep, contentDescription = "清空全部", tint = MaterialTheme.colorScheme.error)
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -167,13 +205,18 @@ fun CommentFraudHistoryScreen() {
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = if (allRecords.isEmpty()) "暂无发评记录" else "无匹配状态的评论",
+                            text = when {
+                                allRecords.isEmpty() -> "暂无发评记录"
+                                searchedRecords.isEmpty() -> "未找到含「${searchQuery.keyword}」的评论"
+                                else -> "无匹配状态的评论"
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "发出的评论将在此处沉淀并追踪全生命周期状态",
+                            text = if (searchedRecords.isEmpty() && allRecords.isNotEmpty()) "试试更短的关键词，或直接搜索评论 ID"
+                            else "发出的评论将在此处沉淀并追踪全生命周期状态",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -188,6 +231,7 @@ fun CommentFraudHistoryScreen() {
                     items(filteredRecords, key = { it.rpid }) { record ->
                         CommentFraudItemCard(
                             record = record,
+                            keyword = searchQuery.keyword,
                             isRechecking = recheckingRpid == record.rpid,
                             isDeleting = deletingRpid == record.rpid, // 👈 补上传入参数
                             onRecheck = {
@@ -279,11 +323,60 @@ fun CommentFraudHistoryScreen() {
 }
 
 /**
+ * 顶栏搜索态：左侧返回收起，输入框自动聚焦，右侧一键清空。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchTopBar(
+    keyword: String,
+    onKeywordChange: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    TopAppBar(
+        navigationIcon = {
+            IconButton(onClick = onClose) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "退出搜索")
+            }
+        },
+        title = {
+            TextField(
+                value = keyword,
+                onValueChange = onKeywordChange,
+                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                placeholder = {
+                    Text("搜索评论内容、来源标识或评论 ID", fontSize = 14.sp)
+                },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                ),
+                trailingIcon = {
+                    if (keyword.isNotEmpty()) {
+                        IconButton(onClick = { onKeywordChange("") }) {
+                            Icon(Icons.Outlined.Close, contentDescription = "清空关键词")
+                        }
+                    }
+                }
+            )
+        }
+    )
+}
+
+/**
  * 手风琴折叠全息卡片
  */
 @Composable
 private fun CommentFraudItemCard(
     record: CommentFraudRecord,
+    keyword: String,
     isRechecking: Boolean,
     isDeleting: Boolean,
     onRecheck: () -> Unit,
@@ -364,9 +457,9 @@ private fun CommentFraudItemCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // --- 评论正文 (点击快速复制) ---
+            // --- 评论正文 (点击快速复制，搜索命中处高亮) ---
             Text(
-                text = record.message,
+                text = highlightHits(record.message, keyword),
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -466,6 +559,30 @@ private fun CommentFraudItemCard(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * 把搜索命中片段标成主题蓝加粗，便于在长评论里一眼定位。
+ */
+@Composable
+private fun highlightHits(message: String, keyword: String): AnnotatedString {
+    val ranges = CommentFraudSearch.highlightRanges(message, keyword)
+    if (ranges.isEmpty()) return AnnotatedString(message)
+
+    return buildAnnotatedString {
+        append(message)
+        for (range in ranges) {
+            addStyle(
+                style = SpanStyle(
+                    color = iOSBlue,
+                    fontWeight = FontWeight.Bold,
+                    background = iOSBlue.copy(alpha = 0.15f)
+                ),
+                start = range.first,
+                end = range.last + 1
+            )
         }
     }
 }
