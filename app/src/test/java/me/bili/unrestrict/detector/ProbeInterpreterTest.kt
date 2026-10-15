@@ -47,6 +47,7 @@ class ProbeInterpreterTest {
         assertEquals(ProbeKind.GONE, ProbeInterpreter.classifyCode(-404))       // 啥都木有
         assertEquals(ProbeKind.GONE, ProbeInterpreter.classifyCode(12002))      // 评论功能已关闭
         assertEquals(ProbeKind.GONE, ProbeInterpreter.classifyCode(12022))      // 根评论已删除
+        assertEquals(ProbeKind.GONE, ProbeInterpreter.classifyCode(12006))      // 没有该评论（楼中楼 root 不存在）
         assertEquals(ProbeKind.UNAVAILABLE, ProbeInterpreter.classifyCode(-352))  // 风控
         assertEquals(ProbeKind.UNAVAILABLE, ProbeInterpreter.classifyCode(12061)) // 审核中
         assertEquals(ProbeKind.UNAVAILABLE, ProbeInterpreter.classifyCode(-1))
@@ -255,6 +256,18 @@ class ProbeInterpreterTest {
     }
 
     @Test
+    fun `裁定 根评论消失落到根评论已消失而不是已删除（回归）`() {
+        // 12006 只说明这条子评论挂靠的根评论不见了，子评论自身是否还在【无法核查】
+        val rootGone = ProbeReading(ProbeKind.GONE, code = 12006)
+        assertEquals(ProbeVerdict.ROOT_GONE, ProbeInterpreter.verdictOf(rootGone, rootGone))
+        assertEquals(ProbeVerdict.ROOT_GONE, ProbeInterpreter.verdictOf(rootGone, null))
+        // 作者视角仍能看到 → 依然是"仅自己可见"，不能因为根评论消失就判这条评论没了
+        assertEquals(ProbeVerdict.SHADOW_BANNED, ProbeInterpreter.verdictOf(rootGone, authHit))
+        // -404 与 12006 必须落不同结论
+        assertEquals(ProbeVerdict.DELETED, ProbeInterpreter.verdictOf(anonGone, null))
+    }
+
+    @Test
     fun `裁定 作者可见只是候选 复验后落锤`() {
         assertEquals(ProbeVerdict.SHADOW_BANNED, ProbeInterpreter.verdictOf(anonMiss, authHit))
         assertEquals(ProbeVerdict.SHADOW_BANNED, ProbeInterpreter.verdictOf(anonMiss, authHit, anonMiss))
@@ -269,6 +282,28 @@ class ProbeInterpreterTest {
     @Test
     fun `裁定 复验不可用则退回待确定`() {
         assertEquals(ProbeVerdict.UNKNOWN, ProbeInterpreter.verdictOf(anonMiss, authHit, anonDown))
+    }
+
+    @Test
+    fun `裁定 复验确定看不到 落 shadowban 而不是待确定（回归）`() {
+        // 复验路人视角也报 GONE（确定看不到）→ 与"作者可见"合并 = 仅自己可见。
+        // 曾用 !recheck.ok 判"没验成"，把 GONE 与 UNAVAILABLE 混为一谈（两者 ok 都为 false）。
+        val recheckGone = ProbeReading(ProbeKind.GONE, code = -404)
+        assertEquals(ProbeVerdict.SHADOW_BANNED, ProbeInterpreter.verdictOf(anonMiss, authHit, recheckGone))
+        assertEquals(ProbeVerdict.SHADOW_BANNED, ProbeInterpreter.verdictOf(anonGone, authHit, recheckGone))
+    }
+
+    @Test
+    fun `裁定 路人报 gone 而作者可见 同样要先复验（楼中楼早期 gone 分支）`() {
+        // 楼中楼的早期 gone 分支（第一个探针就报 -404 / 12006）原先直接落锤，
+        // 现在与根评论路径、完整扫描路径走同一套"延迟复验路人视角"：
+        val rootGone = ProbeReading(ProbeKind.GONE, code = 12006)
+        // 候选（尚未复验）—— 调用方必须去复验，不得直接落锤
+        assertEquals(ProbeVerdict.SHADOW_BANNED, ProbeInterpreter.verdictOf(rootGone, authHit))
+        // 复验路人可见 → 是缓存 / 审核延迟造成的假阳性 → 纠正为正常
+        assertEquals(ProbeVerdict.NORMAL, ProbeInterpreter.verdictOf(rootGone, authHit, anonHit))
+        // 复验不可用 → 退回待确定
+        assertEquals(ProbeVerdict.UNKNOWN, ProbeInterpreter.verdictOf(rootGone, authHit, anonDown))
     }
 
     // ---------- 软屏蔽（invisible）读取 ----------

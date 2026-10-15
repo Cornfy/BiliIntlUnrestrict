@@ -71,6 +71,7 @@ object CommentProbeEngine {
         ProbeVerdict.INVISIBLE -> CommentFraudStatus.INVISIBLE
         ProbeVerdict.SHADOW_BANNED -> CommentFraudStatus.SHADOW_BANNED
         ProbeVerdict.DELETED -> CommentFraudStatus.DELETED
+        ProbeVerdict.ROOT_GONE -> CommentFraudStatus.ROOT_GONE
         ProbeVerdict.UNKNOWN -> CommentFraudStatus.UNKNOWN
     }
 
@@ -139,7 +140,7 @@ object CommentProbeEngine {
             val verdict = ProbeInterpreter.verdictOf(anon, null)
             XLog.w(
                 if (verdict == ProbeVerdict.DELETED)
-                    "🗑️ [存活探针-根评] 评论区不存在 (code=${anon.code}) -> DELETED (rpid=$rpid)"
+                    "🗑️ [存活探针-根评] 评论区 / 评论对象不存在 (code=${anon.code}) -> DELETED (rpid=$rpid)"
                 else
                     "⚠️ [存活探针-根评] 缺少作者视角 Cookie，无法区分「仅自己可见」与「已删除」 -> UNKNOWN (rpid=$rpid)"
             )
@@ -206,9 +207,24 @@ object CommentProbeEngine {
             return CommentFraudStatus.UNKNOWN
         }
         if (first.kind == ProbeKind.GONE) {
-            XLog.w("🗑️ [存活探针-楼中楼] 评论区不存在 (code=${first.code})，复验作者视角...")
+            XLog.w("🗑️ [存活探针-楼中楼] 评论区 / 根评论不存在 (code=${first.code})，复验作者视角...")
             val auth = if (cookie.isBlank()) null else probe(1, asAuthor = true)
             val verdict = ProbeInterpreter.verdictOf(first, auth)
+            if (verdict == ProbeVerdict.SHADOW_BANNED) {
+                // 候选结论：延迟复验路人视角，排除缓存 / 审核延迟造成的假阳性。
+                // 这一支原先直接落锤，缺了与根评论路径、本函数末段同样的复验 —— 补上。
+                delay(RECHECK_DELAY_MS)
+                val recheck = probe(1)
+                val confirmed = ProbeInterpreter.verdictOf(first, auth, recheck)
+                XLog.w(
+                    when (confirmed) {
+                        ProbeVerdict.SHADOW_BANNED -> "🚨 [存活探针-楼中楼] 判定为仅自己可见 (SHADOW_BANNED): 路人视角报 gone(${first.code})，作者视角可见 (rpid=$rpid)"
+                        ProbeVerdict.UNKNOWN -> "⚠️ [存活探针-楼中楼] 复验路人视角不可用 (code=${recheck.code}) -> UNKNOWN (rpid=$rpid)"
+                        else -> "🟢 [存活探针-楼中楼] 复验路人视角可见 -> ${statusOf(confirmed)} (rpid=$rpid)"
+                    }
+                )
+                return statusOf(confirmed)
+            }
             XLog.w("🏁 [存活探针-楼中楼] 判定 rpid=$rpid -> ${statusOf(verdict)}")
             return statusOf(verdict)
         }

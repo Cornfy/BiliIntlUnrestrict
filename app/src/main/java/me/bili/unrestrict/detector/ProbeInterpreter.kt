@@ -6,6 +6,7 @@ private const val DEFAULT_PAGE_SIZE = 20
 private const val CODE_NOT_FOUND = -404          // "啥都木有"：该 oid/type 下不存在评论区
 private const val CODE_COMMENT_CLOSED = 12002    // 评论功能已关闭
 private const val CODE_ROOT_DELETED = 12022      // 根评论已删除
+private const val CODE_REPLY_ROOT_MISSING = 12006 // "没有该评论"：reply/reply 的 root 评论不存在
 
 /**
  * 探针结论分类。核心是把"这次请求本身没成功"与"这个视角确定看不到"分开——
@@ -18,7 +19,7 @@ private const val CODE_ROOT_DELETED = 12022      // 根评论已删除
 enum class ProbeKind { OK, GONE, UNAVAILABLE }
 
 /** 双视角裁定的落锤结论（与 CommentFraudStatus 同名，便于映射） */
-enum class ProbeVerdict { NORMAL, INVISIBLE, SHADOW_BANNED, DELETED, UNKNOWN }
+enum class ProbeVerdict { NORMAL, INVISIBLE, SHADOW_BANNED, DELETED, ROOT_GONE, UNKNOWN }
 
 /** 一次视角探针的解读结果（纯数据，可独立单测） */
 data class ProbeReading(
@@ -48,7 +49,7 @@ object ProbeInterpreter {
     /** 响应码分类：把"确定没有"与"暂时拿不到"严格分开 */
     fun classifyCode(code: Int): ProbeKind = when (code) {
         0 -> ProbeKind.OK
-        CODE_NOT_FOUND, CODE_COMMENT_CLOSED, CODE_ROOT_DELETED -> ProbeKind.GONE
+        CODE_NOT_FOUND, CODE_COMMENT_CLOSED, CODE_ROOT_DELETED, CODE_REPLY_ROOT_MISSING -> ProbeKind.GONE
         else -> ProbeKind.UNAVAILABLE
     }
 
@@ -185,13 +186,23 @@ object ProbeInterpreter {
                 if (recheck.hit) {
                     return if (recheck.invisible) ProbeVerdict.INVISIBLE else ProbeVerdict.NORMAL
                 }
-                if (!recheck.ok) return ProbeVerdict.UNKNOWN
+                // 复验只有「确定看不到」(GONE) 才与作者可见合并落 shadowban；
+                // 「暂时拿不到」(UNAVAILABLE) 仍是拿不准，退回待确定。
+                // 曾用 !recheck.ok 判"没验成"，把 GONE 与 UNAVAILABLE 混为一谈（两者 ok 都为 false）。
+                if (recheck.kind == ProbeKind.UNAVAILABLE) return ProbeVerdict.UNKNOWN
                 return ProbeVerdict.SHADOW_BANNED
             }
             return ProbeVerdict.SHADOW_BANNED
         }
 
-        if (anon.kind == ProbeKind.GONE) return ProbeVerdict.DELETED
+        // anon 的 GONE 有两种含义，必须分开落锤：
+        //   -404「啥都木有」= 整个评论区都不存在 → 目标评论确定没了 → DELETED
+        //   12006「没有该评论」= 楼中楼的 root 不见了 → 只是「父评论消失」，
+        //                        这条子评论自身是否还在【无法核查】→ ROOT_GONE（刻意不并进 DELETED）
+        if (anon.kind == ProbeKind.GONE) {
+            return if (anon.code == CODE_REPLY_ROOT_MISSING) ProbeVerdict.ROOT_GONE
+            else ProbeVerdict.DELETED
+        }
         if (auth == null || auth.kind == ProbeKind.UNAVAILABLE) return ProbeVerdict.UNKNOWN
         return ProbeVerdict.DELETED
     }

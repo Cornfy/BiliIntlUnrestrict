@@ -81,7 +81,8 @@ fun CommentFraudHistoryScreen() {
         CommentFraudStatus.DELETED to "⚫ 已失效",
         CommentFraudStatus.INVISIBLE to "🟠 软屏蔽",
         CommentFraudStatus.UNDER_REVIEW to "🟡 审核中",
-        CommentFraudStatus.UNKNOWN to "⚪ 状态待确定"
+        CommentFraudStatus.UNKNOWN to "⚪ 状态待确定",
+        CommentFraudStatus.ROOT_GONE to "🟣 根评论已消失"
     )
     val visibleStatusChips = statusChipDefs.filter { (status, _) ->
         (statusCounts[status] ?: 0) > 0 || selectedFilter == status
@@ -407,6 +408,7 @@ private fun CommentFraudItemCard(
             CommentFraudStatus.DELETED -> "已失效" to Color.DarkGray
             CommentFraudStatus.INVISIBLE -> "软屏蔽" to iOSOrange
             CommentFraudStatus.UNDER_REVIEW -> "审核中" to iOSOrange
+            CommentFraudStatus.ROOT_GONE -> "根评论已消失" to Color(0xFF9C27B0)
             CommentFraudStatus.UNKNOWN -> "状态待确定" to Color.Gray
         }
     }

@@ -81,8 +81,13 @@ data class CommentFraudRecord(
                     if (days > 0) "⚠️ 评论已失效 (发评 $days 天后已被删除或清理)"
                     else "⚠️ 延迟失效 (初检正常，后已被删除或清理)"
                 }
+                init == CommentFraudStatus.NORMAL && curr == CommentFraudStatus.ROOT_GONE -> {
+                    if (days > 0) "🟣 根评论已消失 (发评 $days 天后，所属根评论已不存在)"
+                    else "🟣 根评论已消失 (所属根评论已不存在，子评论无法核查)"
+                }
                 curr == CommentFraudStatus.SHADOW_BANNED -> "🔴 评论被 shadowBan (仅自己可见)"
                 curr == CommentFraudStatus.DELETED -> "⚫ 评论已失效 (已被删除或不存在)"
+                curr == CommentFraudStatus.ROOT_GONE -> "🟣 根评论已消失 (所属根评论已不存在，子评论自身无法核查)"
                 curr == CommentFraudStatus.UNDER_REVIEW -> "🟡 评论疑似审核中 (处于先审后发队列)"
                 curr == CommentFraudStatus.INVISIBLE -> "🟠 评论被软屏蔽 (Invisible: 前端强制隐藏)"
                 else -> "⚪ 状态待确定"
