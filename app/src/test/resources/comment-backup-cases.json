@@ -1,0 +1,6 @@
+[
+  {"name":"unknown must not overwrite valid", "local":[{"rpid":"2","oid":"1000000000000000001","status":"DELETED","timestamp":100,"initial_status":"NORMAL","message":"keep"}], "incoming":[{"rpid":2,"oid":1000000000000000001,"status":"UNKNOWN","timestamp":200}], "status":"DELETED","time":100,"changes":0,"kept":1},
+  {"name":"incoming valid overrides conflicting valid", "local":[{"rpid":"2","oid":"1","status":"DELETED","timestamp":300}], "incoming":[{"rpid":2,"oid":1,"status":"NORMAL","timestamp":100}], "status":"NORMAL","time":100,"changes":1,"kept":0},
+  {"name":"incoming valid overrides unknown", "local":[{"rpid":"2","oid":"1","status":"UNKNOWN","timestamp":300}], "incoming":[{"rpid":"2","oid":"1","status":"SHADOW_BANNED","timestamp":200}], "status":"SHADOW_BANNED","time":200,"changes":1,"kept":0},
+  {"name":"long max IDs survive", "local":[], "incoming":[{"rpid":9223372036854775807,"oid":"9223372036854775806","root":"9223372036854775805","status":"ROOT_GONE","timestamp":100}], "status":"ROOT_GONE","time":100,"changes":0,"kept":0}
+]

@@ -56,6 +56,9 @@ BUILD_CHOICE="${BUILD_CHOICE:-Y}"
 
 if [[ "$BUILD_CHOICE" =~ ^[Yy]$ ]]; then
     echo -e "${BLUE}⏳ 正在执行 Gradle Release 混淆压缩编译与签名...${NC}"
+    # Keep downloaded Gradle distributions and dependency caches inside this checkout by default.
+    # Callers can still select another cache directory through GRADLE_USER_HOME.
+    export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$PWD/.gradle-local}"
     ./gradlew assembleRelease
 fi
 

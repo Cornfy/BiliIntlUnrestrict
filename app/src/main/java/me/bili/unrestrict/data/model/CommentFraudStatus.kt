@@ -12,10 +12,10 @@ enum class CommentFraudStatus {
 
     companion object {
         fun parse(raw: String): CommentFraudStatus {
-            return when (raw.lowercase().replace("_", "").replace("-", "")) {
-                "normal", "ok" -> NORMAL
-                "shadowban", "shadowbanned" -> SHADOW_BANNED
-                "deleted", "del" -> DELETED
+            return when (raw.lowercase().replace(Regex("[\\s_-]"), "")) {
+                "normal", "ok", "pass" -> NORMAL
+                "shadowban", "shadowbanned", "ban" -> SHADOW_BANNED
+                "deleted", "del", "removed" -> DELETED
                 "invisible", "inv" -> INVISIBLE
                 "underreview", "review", "auditing" -> UNDER_REVIEW
                 "rootgone", "rootmissing", "parentgone" -> ROOT_GONE

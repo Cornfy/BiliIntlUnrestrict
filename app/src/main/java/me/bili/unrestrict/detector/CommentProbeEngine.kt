@@ -47,12 +47,13 @@ object CommentProbeEngine {
                 builder.header("Cookie", cookie)
             }
 
-            val response = client.newCall(builder.build()).execute()
-            if (response.isSuccessful) {
-                response.body?.string()
-            } else {
-                XLog.w("⚠️ [探针网络] HTTP 请求失败 code=${response.code}, url=$url")
-                null
+            client.newCall(builder.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    response.body?.string()
+                } else {
+                    XLog.w("⚠️ [探针网络] HTTP 请求失败 code=${response.code}, url=$url")
+                    null
+                }
             }
         } catch (e: Exception) {
             XLog.w("⚠️ [探针网络] 请求异常 url=$url: ${e.message}")
@@ -179,7 +180,7 @@ object CommentProbeEngine {
      * 该接口既不支持 seek_rpid，ps 也被服务端锁死在 20，只能翻页：
      *   1) 末页直跳 + 倒数第 2 页容差
      *   2) 按发布时间做时序二分 —— 区间只取自 data.replies，且命中区间时核实相邻页而非直接落锤
-     *   3) 扫描不完整且楼层不大时全量翻页兜底，否则判 UNKNOWN，绝不误报
+     *   3) 扫描不完整则判 UNKNOWN，不做全量翻页兜底
      */
     private suspend fun evaluateSubReply(
         oid: Long,
@@ -294,6 +295,10 @@ object CommentProbeEngine {
                 }
             }
 
+            if (low <= high && binarySteps >= maxSteps && candidates.isEmpty() && hitProbe == null) {
+                scanIncomplete = true
+            }
+
             for (page in candidates) {
                 if (hitProbe != null) break
                 if (page < 1 || page > lastPage) continue
@@ -338,20 +343,26 @@ object CommentProbeEngine {
         }
 
         XLog.w("⚠️ [存活探针-楼中楼] 路人视角未见，正在对目标页 pn=$targetPage 进行作者视角复验...")
-        val auth = probe(targetPage, asAuthor = true)
-        var authFound = auth.hit
-        if (!authFound && auth.ok && targetPage > 1) {
-            authFound = probe(targetPage - 1, asAuthor = true).hit
+        var authReading = probe(targetPage, asAuthor = true)
+        if (!authReading.hit && authReading.ok && targetPage > 1) {
+            authReading = probe(targetPage - 1, asAuthor = true)
         }
 
-        val anonLack = ProbeReading(ProbeKind.OK)              // 路人视角已完整扫描，确实未见
-        val authReading = if (authFound) ProbeReading(ProbeKind.OK, hit = true) else auth
+        val anonLack = ProbeReading(ProbeKind.OK)
         val verdict = ProbeInterpreter.verdictOf(anonLack, authReading)
 
         if (verdict == ProbeVerdict.SHADOW_BANNED) {
             // 候选结论：延迟复验路人视角，排除缓存 / 审核延迟造成的假阳性
             delay(RECHECK_DELAY_MS)
-            val recheck = probe(targetPage)
+            val current = probe(targetPage)
+            val previous = if (targetPage > 1) probe(targetPage - 1) else null
+            val recheck = when {
+                current.hit -> current
+                previous?.hit == true -> previous
+                current.kind == ProbeKind.UNAVAILABLE -> current
+                previous?.kind == ProbeKind.UNAVAILABLE -> previous
+                else -> current
+            }
             val confirmed = ProbeInterpreter.verdictOf(anonLack, authReading, recheck)
             XLog.w(
                 when (confirmed) {
@@ -365,7 +376,7 @@ object CommentProbeEngine {
 
         XLog.w(
             if (verdict == ProbeVerdict.UNKNOWN)
-                "⚠️ [存活探针-楼中楼] 作者视角不可用 (code=${auth.code}) -> UNKNOWN (rpid=$rpid)"
+                "⚠️ [存活探针-楼中楼] 作者视角不可用 (code=${authReading.code}) -> UNKNOWN (rpid=$rpid)"
             else
                 "🗑️ [存活探针-楼中楼] 双重视角均未见 -> DELETED (rpid=$rpid)"
         )

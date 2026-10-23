@@ -64,3 +64,6 @@ Thumbs.db
 !gradle/wrapper/gradle-wrapper.properties
 !gradlew
 !gradlew.bat
+
+# 项目内隔离的构建依赖缓存
+.gradle-local/

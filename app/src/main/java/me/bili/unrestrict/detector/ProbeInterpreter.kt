@@ -1,5 +1,7 @@
 package me.bili.unrestrict.detector
 
+import kotlinx.serialization.json.*
+
 private const val DEFAULT_PAGE_SIZE = 20
 
 // 服务端响应码
@@ -125,7 +127,7 @@ object ProbeInterpreter {
         return if (min == Long.MAX_VALUE) null else min to max
     }
 
-    /** 命中判定：rpid 后面不能再接数字，避免 3155357223841 被当成 315535722384 */
+    /** 命中判定：rpid 后面不能再接数字，避免 2000000000001 被当成 200000000000 */
     fun hasRpid(body: String, rpid: Long): Boolean =
         Regex("\"rpid\"\\s*:\\s*$rpid(?!\\d)").containsMatchIn(body)
 
@@ -144,27 +146,37 @@ object ProbeInterpreter {
     fun readingOf(body: String?, rpid: Long): ProbeReading {
         if (body.isNullOrBlank()) return ProbeReading(ProbeKind.UNAVAILABLE)
 
-        val code = firstInt(body, "code") ?: return ProbeReading(ProbeKind.UNAVAILABLE)
+        val response = try { Json.parseToJsonElement(body) as? JsonObject } catch (_: Exception) { null }
+            ?: return ProbeReading(ProbeKind.UNAVAILABLE)
+        val code = (response["code"] as? JsonPrimitive)?.intOrNull
+            ?: return ProbeReading(ProbeKind.UNAVAILABLE)
         val kind = classifyCode(code)
         if (kind != ProbeKind.OK) return ProbeReading(kind, code)
-
-        val hit = hasRpid(body, rpid)
-        val invisible = hit && isInvisible(body, rpid)
-
-        // 页大小与总量优先取 data.page（该接口把 ps 锁死在 20，必须按真实 page.size 算页数）
-        val pageBlock = blockOf(body, "page", '{', '}')
-        val rootBlock = blockOf(body, "root", '{', '}')
-        val pageSize = firstInt(pageBlock, "size") ?: DEFAULT_PAGE_SIZE
-        // 按语义优先级取值：page.count 是列表真实总量，其次才是根评论的子评论数
-        val totalCount = firstInt(pageBlock, "count")
-            ?: firstInt(rootBlock, "rcount")
-            ?: firstInt(rootBlock, "count")
-            ?: 0
-
-        // ★ 时间区间只取 data.replies（详见类注释）
-        val ctimeRange = ctimeRangeIn(blockOf(body, "replies", '[', ']'))
-
-        return ProbeReading(kind, 0, hit, invisible, ctimeRange, totalCount, pageSize)
+        val data = response["data"] as? JsonObject ?: return ProbeReading(ProbeKind.UNAVAILABLE)
+        fun findReply(value: JsonElement?): JsonObject? = when (value) {
+            is JsonArray -> value.firstNotNullOfOrNull { findReply(it) }
+            is JsonObject -> {
+                val id = (value["rpid"] as? JsonPrimitive)?.longOrNull
+                    ?: (value["rpid_str"] as? JsonPrimitive)?.longOrNull
+                if (id == rpid) value else findReply(value["replies"])
+            }
+            else -> null
+        }
+        val containers = listOf(data["replies"], data["top_replies"], data["hots"],
+            data["top"], (data["upper"] as? JsonObject)?.get("top"), data["root"])
+        val found = containers.firstNotNullOfOrNull { findReply(it) }
+        val page = data["page"] as? JsonObject
+        val root = data["root"] as? JsonObject
+        fun number(obj: JsonObject?, key: String) = (obj?.get(key) as? JsonPrimitive)?.intOrNull
+        val pageSize = number(page, "size") ?: DEFAULT_PAGE_SIZE
+        val totalCount = number(page, "count") ?: number(root, "rcount") ?: number(root, "count") ?: 0
+        val times = (data["replies"] as? JsonArray).orEmpty().mapNotNull {
+            ((it as? JsonObject)?.get("ctime") as? JsonPrimitive)?.longOrNull?.takeIf { time -> time > 0 }
+        }
+        val range = if (times.isEmpty()) null else times.min() to times.max()
+        return ProbeReading(kind, 0, found != null,
+            (found?.get("invisible") as? JsonPrimitive)?.booleanOrNull == true,
+            range, totalCount, pageSize)
     }
 
     fun lastPage(totalCount: Int, pageSize: Int): Int {
@@ -186,7 +198,7 @@ object ProbeInterpreter {
                 if (recheck.hit) {
                     return if (recheck.invisible) ProbeVerdict.INVISIBLE else ProbeVerdict.NORMAL
                 }
-                // 复验只有「确定看不到」(GONE) 才与作者可见合并落 shadowban；
+                // 复验成功但未命中或返回 GONE，才与作者可见合并落 shadowban；
                 // 「暂时拿不到」(UNAVAILABLE) 仍是拿不准，退回待确定。
                 // 曾用 !recheck.ok 判"没验成"，把 GONE 与 UNAVAILABLE 混为一谈（两者 ok 都为 false）。
                 if (recheck.kind == ProbeKind.UNAVAILABLE) return ProbeVerdict.UNKNOWN

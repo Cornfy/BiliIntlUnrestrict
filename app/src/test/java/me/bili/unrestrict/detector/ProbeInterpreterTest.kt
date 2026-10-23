@@ -14,6 +14,25 @@ import org.junit.Test
  */
 class ProbeInterpreterTest {
 
+    @Test
+    fun `无 data 和截断 JSON 不得作为成功的未命中`() {
+        assertEquals(ProbeKind.UNAVAILABLE, ProbeInterpreter.readingOf("""{"code":0}""", TARGET_RPID).kind)
+        assertEquals(ProbeKind.UNAVAILABLE, ProbeInterpreter.readingOf("""{"code":0,"data":{"replies":[]}""", TARGET_RPID).kind)
+    }
+
+    @Test
+    fun `嵌套字段不影响目标 invisible 且忽略非评论容器的 rpid`() {
+        val body = """{"code":0,"data":{"replies":[{"rpid":$TARGET_RPID,"content":{"message":"hello"},"invisible":true}],"config":{"rpid":42}}}"""
+        assertTrue(ProbeInterpreter.readingOf(body, TARGET_RPID).invisible)
+        assertFalse(ProbeInterpreter.readingOf(body, 42).hit)
+    }
+
+    @Test
+    fun `时间区间不包含子评论嵌套回复`() {
+        val body = """{"code":0,"data":{"replies":[{"rpid":1,"ctime":100,"replies":[{"rpid":2,"ctime":999}]}]}}"""
+        assertEquals(100L to 100L, ProbeInterpreter.readingOf(body, TARGET_RPID).ctimeRange)
+    }
+
     // ---------- 夹具：仿照 x/v2/reply/reply 的真实字段布局 ----------
     // data 的键顺序真实为 page → upper → replies → root（子评论在前、根评论在后）；
     // 每条子评论都带 "root":<数字> 与 "replies":null，只有 data.root 是对象。
@@ -343,8 +362,9 @@ class ProbeInterpreterTest {
     }
 
     companion object {
-        private const val ROOT_ID = 288_172_898_608L
-        private const val RPID_BASE = 315_535_000_000L
+        // 手工构造的测试 ID，不来自用户评论。
+        private const val ROOT_ID = 100_000_000_000L
+        private const val RPID_BASE = 200_000_000_000L
         private const val TARGET_RPID = RPID_BASE + 1   // 对应 replyCtimes[1]
     }
 }

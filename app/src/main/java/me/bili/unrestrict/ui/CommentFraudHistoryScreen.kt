@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import me.bili.unrestrict.data.db.CommentFraudRecord
+import me.bili.unrestrict.data.model.CommentBackup
 import me.bili.unrestrict.data.model.CommentFraudSearch
 import me.bili.unrestrict.data.model.CommentFraudStatus
 import me.bili.unrestrict.data.repository.CommentFraudRepository
@@ -54,6 +55,11 @@ fun CommentFraudHistoryScreen() {
     val scope = rememberCoroutineScope()
     val allRecords by CommentFraudRepository.getAllRecordsFlow(context).collectAsState(initial = emptyList())
 
+    var importPlan by remember { mutableStateOf<CommentBackup.Plan?>(null) }
+    var showImportChanges by remember { mutableStateOf(false) }
+    var undoAvailable by remember { mutableStateOf(CommentFraudRepository.canUndo(context)) }
+    var showUndoDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(allRecords) { undoAvailable = CommentFraudRepository.canUndo(context) }
     var selectedFilter by remember { mutableStateOf<CommentFraudStatus?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
     var recordToDeleteOnBili by remember { mutableStateOf<CommentFraudRecord?>(null) }
@@ -64,11 +70,13 @@ fun CommentFraudHistoryScreen() {
 
     // 关键词先于状态筛选生效，顶部 Chip 的计数也随之收敛到搜索结果
     val searchQuery = remember(searchText) { CommentFraudSearch.parse(searchText) }
-    val searchedRecords = remember(allRecords, searchText) {
-        CommentFraudSearch.filter(allRecords, searchText)
+    val searchedRecords = remember(allRecords, searchText, showImportChanges, importPlan) {
+        val base = if (showImportChanges) allRecords.filter { importPlan?.changes?.containsKey(it.rpid) == true } else allRecords
+        CommentFraudSearch.filter(base, searchText)
     }
-    val filteredRecords = remember(searchedRecords, selectedFilter) {
-        if (selectedFilter == null) searchedRecords else searchedRecords.filter { it.fraudStatus == selectedFilter }
+    val filteredRecords = remember(searchedRecords, selectedFilter, showImportChanges, importPlan) {
+        searchedRecords.filter { (selectedFilter == null || it.fraudStatus == selectedFilter) &&
+            (!showImportChanges || importPlan?.changes?.containsKey(it.rpid) == true) }
     }
 
     // 各状态的条数（跟随搜索收敛），用于「有记录才显示该芯片」，避免出现永远空的死芯片
@@ -81,8 +89,8 @@ fun CommentFraudHistoryScreen() {
         CommentFraudStatus.DELETED to "⚫ 已失效",
         CommentFraudStatus.INVISIBLE to "🟠 软屏蔽",
         CommentFraudStatus.UNDER_REVIEW to "🟡 审核中",
-        CommentFraudStatus.UNKNOWN to "⚪ 状态待确定",
-        CommentFraudStatus.ROOT_GONE to "🟣 根评论已消失"
+        CommentFraudStatus.ROOT_GONE to "🟣 根评论已消失",
+        CommentFraudStatus.UNKNOWN to "⚪ 状态待确定"
     )
     val visibleStatusChips = statusChipDefs.filter { (status, _) ->
         (statusCounts[status] ?: 0) > 0 || selectedFilter == status
@@ -101,8 +109,11 @@ fun CommentFraudHistoryScreen() {
                     val content = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                     if (!content.isNullOrBlank()) {
                         val result = CommentFraudRepository.importFromJson(context, content)
-                        result.onSuccess { count ->
-                            Toast.makeText(context, "✅ 成功导入 $count 条历史记录！", Toast.LENGTH_SHORT).show()
+                        result.onSuccess { plan ->
+                            importPlan = plan
+                            showImportChanges = false
+                            undoAvailable = CommentFraudRepository.canUndo(context)
+                            Toast.makeText(context, "✅ 导入完成", Toast.LENGTH_SHORT).show()
                         }.onFailure {
                             Toast.makeText(context, "❌ 导入失败: ${it.message}", Toast.LENGTH_SHORT).show()
                         }
@@ -172,6 +183,21 @@ fun CommentFraudHistoryScreen() {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            if (undoAvailable) {
+                TextButton(onClick = { showUndoDialog = true }) { Text("撤销上次本地删除、清空或导入") }
+            }
+            importPlan?.let { plan ->
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    Text("导入完成：新增 ${plan.added} 条，更新状态 ${plan.changes.size} 条，保留本地有效状态 ${plan.kept} 条。")
+                    Row {
+                        if (plan.changes.isNotEmpty()) TextButton(onClick = {
+                            showImportChanges = !showImportChanges
+                            if (showImportChanges) { selectedFilter = null; searchText = "" }
+                        }) { Text(if (showImportChanges) "退出变化筛选" else "查看变化") }
+                        TextButton(onClick = { importPlan = null; showImportChanges = false }) { Text("关闭") }
+                    }
+                }
+            }
             if (allRecords.isNotEmpty()) {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
@@ -236,6 +262,7 @@ fun CommentFraudHistoryScreen() {
                         CommentFraudItemCard(
                             record = record,
                             keyword = searchQuery.keyword,
+                            importChange = if (showImportChanges) importPlan?.changes?.get(record.rpid) else null,
                             isRechecking = recheckingRpid == record.rpid,
                             isDeleting = deletingRpid == record.rpid, // 👈 补上传入参数
                             onRecheck = {
@@ -244,7 +271,7 @@ fun CommentFraudHistoryScreen() {
                                     val res = CommentFraudRepository.recheckRecord(context, record)
                                     recheckingRpid = null
                                     res.onSuccess { status ->
-                                        Toast.makeText(context, "复检完成: $status", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, if (status == CommentFraudStatus.UNKNOWN) "本次未能确认，已有有效状态保持不变" else "复检完成: $status", Toast.LENGTH_SHORT).show()
                                     }.onFailure {
                                         Toast.makeText(context, "复检失败: ${it.message}", Toast.LENGTH_SHORT).show()
                                     }
@@ -263,7 +290,15 @@ fun CommentFraudHistoryScreen() {
                                 } catch (_: Exception) {}
                             },
                             onDeleteLocal = {
-                                scope.launch { CommentFraudRepository.deleteLocalRecord(context, record.rpid) }
+                                scope.launch {
+                                    try {
+                                        CommentFraudRepository.deleteLocalRecord(context, record.rpid)
+                                        undoAvailable = CommentFraudRepository.canUndo(context)
+                                        importPlan = null; showImportChanges = false
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "删除失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             },
                             onDeleteBili = {
                                 recordToDeleteOnBili = record
@@ -275,15 +310,39 @@ fun CommentFraudHistoryScreen() {
         }
     }
 
+    if (showUndoDialog) {
+        AlertDialog(onDismissRequest = { showUndoDialog = false },
+            title = { Text("恢复操作前的本地记录？") },
+            text = { Text("将用唯一一份操作前备份替换当前列表，包括覆盖之后的本地改动。无法恢复已在 B 站真实删除的评论。") },
+            confirmButton = { TextButton(onClick = {
+                showUndoDialog = false
+                scope.launch {
+                    CommentFraudRepository.undoLastLocalChange(context).onSuccess {
+                        importPlan = null; showImportChanges = false
+                        undoAvailable = false
+                        Toast.makeText(context, "已恢复本地记录", Toast.LENGTH_SHORT).show()
+                    }.onFailure { Toast.makeText(context, "恢复失败: ${it.message}", Toast.LENGTH_SHORT).show() }
+                }
+            }) { Text("恢复") } },
+            dismissButton = { TextButton(onClick = { showUndoDialog = false }) { Text("取消") } })
+    }
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
             title = { Text("清空所有反诈记录？", fontWeight = FontWeight.Bold) },
-            text = { Text("这将会删除本地保存的历史发评快照，此操作不可恢复。") },
+            text = { Text("这将会删除本地保存的历史发评快照，可通过唯一一份操作前备份撤销；下一次本地删除、清空或导入会替换该备份。") },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        scope.launch { CommentFraudRepository.clearAllRecords(context) }
+                        scope.launch {
+                            try {
+                                CommentFraudRepository.clearAllRecords(context)
+                                undoAvailable = CommentFraudRepository.canUndo(context)
+                                importPlan = null; showImportChanges = false
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "清空失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                         showClearDialog = false
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
@@ -381,6 +440,7 @@ private fun SearchTopBar(
 private fun CommentFraudItemCard(
     record: CommentFraudRecord,
     keyword: String,
+    importChange: CommentBackup.Change?,
     isRechecking: Boolean,
     isDeleting: Boolean,
     onRecheck: () -> Unit,
@@ -397,7 +457,7 @@ private fun CommentFraudItemCard(
     }
 
     val checkTimeStr = remember(record.timestamp) {
-        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(record.timestamp))
+        if (record.timestamp > 0) SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(record.timestamp)) else "未记录"
     }
 
     val status = record.fraudStatus
@@ -462,6 +522,8 @@ private fun CommentFraudItemCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            if (importChange != null) Text("本次导入：${importStatusLabel(importChange.before)} → ${importStatusLabel(importChange.after)}",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
             // --- 评论正文 (点击快速复制，搜索命中处高亮) ---
             Text(
                 text = highlightHits(record.message, keyword),
@@ -638,4 +700,14 @@ private fun generateBiliUrlScheme(record: CommentFraudRecord): String {
         if (rootId > 0L) "bilibili://comment/detail/${record.type}/${record.oid}/${rootId}?anchor=${record.rpid}"
         else "bilibili://comment/detail/${record.type}/${record.oid}/${record.rpid}"
     }
+}
+
+private fun importStatusLabel(status: CommentFraudStatus): String = when (status) {
+    CommentFraudStatus.NORMAL -> "正常"
+    CommentFraudStatus.DELETED -> "已失效"
+    CommentFraudStatus.SHADOW_BANNED -> "仅自己可见"
+    CommentFraudStatus.INVISIBLE -> "软屏蔽"
+    CommentFraudStatus.UNDER_REVIEW -> "审核中"
+    CommentFraudStatus.ROOT_GONE -> "根评论已消失"
+    CommentFraudStatus.UNKNOWN -> "未知"
 }
